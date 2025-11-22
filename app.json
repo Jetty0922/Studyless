@@ -11,7 +11,18 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.studyless.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "This app needs access to the camera to scan study materials and take photos of notes.",
+        "NSMicrophoneUsageDescription": "This app needs access to the microphone to record audio notes.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to save and load study materials.",
+        "NSPhotoLibraryAddUsageDescription": "This app needs permission to save photos to your library.",
+        "NSCalendarsUsageDescription": "This app needs access to your calendar to schedule study sessions.",
+        "NSRemindersUsageDescription": "This app needs access to reminders to help you remember study tasks.",
+        "NSContactsUsageDescription": "This app needs access to contacts for sharing study materials.",
+        "NSLocationWhenInUseUsageDescription": "This app needs your location to provide location-based study features.",
+        "NSMotionUsageDescription": "This app uses motion data to track study activities.",
+        "NSSpeechRecognitionUsageDescription": "This app uses speech recognition to help you study with voice commands.",
+        "NSAppleMusicUsageDescription": "This app needs access to Apple Music for background study music."
       }
     },
     "android": {
