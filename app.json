@@ -8,10 +8,20 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.studyless.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.studyless.app"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b348b5dc-c0d3-4c5c-a42a-071a9c5c6ded"
+      }
     }
   }
 }
