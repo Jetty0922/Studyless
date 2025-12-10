@@ -1,57 +1,232 @@
-import React from "react";
-import { View, Text, Pressable, Image } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { View, Text, Pressable, Animated, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useTheme } from "../utils/useTheme";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { OnboardingStackParamList } from "../navigation/RootNavigator";
+import { GradientButton } from "../components/ui";
 
 type ValuePropScreenProps = {
-  navigation: any;
+  navigation: NativeStackNavigationProp<OnboardingStackParamList, "ValueProp">;
 };
 
 export default function ValuePropScreen({ navigation }: ValuePropScreenProps) {
-  const { colors } = useTheme();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const badgeFade = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Staggered entrance animation
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(badgeFade, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   return (
-    <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }}>
-      <View className="flex-1 justify-center items-center px-8">
-        {/* Brain Icon/Image */}
-        <View className="w-48 h-48 rounded-full items-center justify-center mb-12" style={{ backgroundColor: colors.primaryLight }}>
-          <Text className="text-7xl">🧠</Text>
-          <View className="absolute bottom-8 right-8 bg-red-100 rounded-full w-12 h-12 items-center justify-center">
-            <Text className="text-2xl">⚠️</Text>
-          </View>
+    <View style={styles.container}>
+      <LinearGradient
+        colors={["#0f172a", "#1e1b4b", "#312e81"]}
+        style={StyleSheet.absoluteFillObject}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+
+
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.content}>
+          {/* Icon */}
+          <Animated.View
+            style={[
+              styles.illustrationContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+          >
+            <View style={styles.iconCircle}>
+              <Ionicons name="sparkles" size={56} color="#ffffff" />
+            </View>
+          </Animated.View>
+
+          {/* Main Headline */}
+          <Animated.View
+            style={{
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            }}
+          >
+            <Text style={styles.headline}>
+              Remember{"\n"}
+              <Text style={styles.headlineAccent}>Everything</Text> You Learn
+            </Text>
+          </Animated.View>
+
+          {/* Value Proposition */}
+          <Animated.View
+            style={{
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            }}
+          >
+            <Text style={styles.subheadline}>
+              Students retain <Text style={styles.stat}>3x more</Text> with{"\n"}
+              AI-powered spaced repetition
+            </Text>
+          </Animated.View>
+
+          {/* Science Badge */}
+          <Animated.View style={[styles.socialProofBadge, { opacity: badgeFade }]}>
+            <View style={styles.badgeContent}>
+              <Ionicons name="flask" size={16} color="#667eea" />
+              <Text style={styles.badgeText}>Based on 100+ years of memory science</Text>
+            </View>
+          </Animated.View>
+
+          {/* Spacer */}
+          <View style={styles.spacer} />
+
+          {/* CTA Button */}
+          <Animated.View
+            style={[
+              styles.ctaContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+          >
+            <GradientButton
+              title="Get Started"
+              onPress={() => navigation.navigate("HowItWorks")}
+              size="large"
+              style={styles.ctaButton}
+            />
+
+            {/* Sign In Link */}
+            <Pressable
+              onPress={() => navigation.navigate("SignIn")}
+              style={styles.signInContainer}
+            >
+              <Text style={styles.signInText}>Already have an account? </Text>
+              <Text style={styles.signInLink}>Sign In</Text>
+            </Pressable>
+          </Animated.View>
         </View>
-
-        {/* Value Proposition */}
-        <Text className="text-5xl font-bold text-center mb-4" style={{ color: colors.text }}>
-          You forget 50% in 24 hours
-        </Text>
-
-        <Text className="text-2xl font-semibold text-center mb-2" style={{ color: colors.primary }}>
-          Studyless makes you remember everything with 10 min/day
-        </Text>
-
-        <Text className="text-lg text-center mb-12" style={{ color: colors.textSecondary }}>
-          No cramming. No stress.
-        </Text>
-
-        {/* Get Started Button */}
-        <Pressable
-          onPress={() => navigation.navigate("HowItWorks")}
-          className="bg-blue-600 rounded-2xl py-5 px-12 w-full mb-4"
-        >
-          <Text className="text-white text-xl font-bold text-center">
-            Get Started
-          </Text>
-        </Pressable>
-
-        {/* Sign In Link */}
-        <View className="flex-row items-center">
-          <Text className="text-base" style={{ color: colors.textSecondary }}>Already have an account? </Text>
-          <Pressable onPress={() => navigation.navigate("SignIn")}>
-            <Text className="text-base font-semibold" style={{ color: colors.primary }}>Sign In</Text>
-          </Pressable>
-        </View>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  illustrationContainer: {
+    marginBottom: 32,
+  },
+  iconCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(102, 126, 234, 0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(167, 139, 250, 0.4)",
+  },
+  headline: {
+    fontSize: 42,
+    fontWeight: "800",
+    color: "#ffffff",
+    textAlign: "center",
+    lineHeight: 50,
+    letterSpacing: -1,
+  },
+  headlineAccent: {
+    color: "#a78bfa",
+  },
+  subheadline: {
+    fontSize: 18,
+    color: "#94a3b8",
+    textAlign: "center",
+    lineHeight: 26,
+    marginTop: 16,
+  },
+  stat: {
+    color: "#4facfe",
+    fontWeight: "700",
+  },
+  socialProofBadge: {
+    marginTop: 24,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  badgeContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  badgeText: {
+    color: "#e2e8f0",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  spacer: {
+    flex: 1,
+    minHeight: 40,
+    maxHeight: 80,
+  },
+  ctaContainer: {
+    width: "100%",
+    alignItems: "center",
+    paddingBottom: 20,
+  },
+  ctaButton: {
+    width: "100%",
+  },
+  signInContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 20,
+  },
+  signInText: {
+    color: "#94a3b8",
+    fontSize: 15,
+  },
+  signInLink: {
+    color: "#a78bfa",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+});

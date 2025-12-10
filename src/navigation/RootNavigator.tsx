@@ -1,4 +1,5 @@
 import React from "react";
+import { View, ActivityIndicator } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,6 +12,7 @@ import DeckSelectionScreen from "../screens/DeckSelectionScreen";
 import ReviewScreen from "../screens/ReviewScreen";
 import ProgressScreen from "../screens/ProgressScreen";
 import SettingsScreen from "../screens/SettingsScreen";
+import AccountSettingsScreen from "../screens/AccountSettingsScreen";
 import DecksListScreen from "../screens/DecksListScreen";
 
 // Import onboarding screens
@@ -24,20 +26,24 @@ import FirstActionScreen from "../screens/FirstActionScreen";
 import CameraScreen from "../screens/CameraScreen";
 import ProcessingScreen from "../screens/ProcessingScreen";
 import CardsGeneratedScreen from "../screens/CardsGeneratedScreen";
+import LogicSimulatorScreen from "../screens/LogicSimulatorScreenV2";
 
 import { useFlashcardStore } from "../state/flashcardStore";
-import { useThemeStore, getThemedColors } from "../state/themeStore";
+import { useTheme } from "../utils/useTheme";
+import { useAuth } from "../context/AuthContext";
 
 export type RootStackParamList = {
   OnboardingStack: undefined;
   MainTabs: undefined;
   Deck: { deckId: string };
   DeckSettings: { deckId: string };
+  AccountSettings: undefined;
   DeckSelection: {
     flashcards: Array<{ front: string; back: string }>;
     sourceUri?: string;
   };
   Review: { cards: string[] };
+  LogicSimulator: undefined;
 };
 
 export type OnboardingStackParamList = {
@@ -49,9 +55,18 @@ export type OnboardingStackParamList = {
   NotificationsSetup: undefined;
   FirstAction: undefined;
   CameraScreen: undefined;
-  ProcessingScreen: { photoUri: string };
-  CardsGenerated: { photoUri: string; cardCount: number };
-  MainTabs: undefined;
+  ProcessingScreen: { 
+    photoUri?: string;
+    fileUri?: string;
+    type?: 'image' | 'pdf';
+  };
+  CardsGenerated: {
+    sourceUri: string;
+    cardCount: number;
+    cards: Array<{ front: string; back: string }>;
+    type: string;
+  };
+  MainTabs: undefined; // Used as transition
 };
 
 export type MainTabsParamList = {
@@ -78,14 +93,13 @@ function OnboardingNavigator() {
       <OnboardingStack.Screen name="CameraScreen" component={CameraScreen} />
       <OnboardingStack.Screen name="ProcessingScreen" component={ProcessingScreen} />
       <OnboardingStack.Screen name="CardsGenerated" component={CardsGeneratedScreen} />
-      <OnboardingStack.Screen name="MainTabs" component={MainTabs} />
+      {/* MainTabs removed from here to avoid nesting issues */}
     </OnboardingStack.Navigator>
   );
 }
 
 function MainTabs() {
-  const theme = useThemeStore((s) => s.theme);
-  const colors = getThemedColors(theme);
+  const { colors } = useTheme();
 
   return (
     <Tab.Navigator
@@ -139,9 +153,19 @@ function MainTabs() {
 }
 
 export default function RootNavigator() {
+  const { isLoading, user } = useAuth();
   const hasCompletedOnboarding = useFlashcardStore((s) => s.hasCompletedOnboarding);
-  const theme = useThemeStore((s) => s.theme);
-  const colors = getThemedColors(theme);
+  const { colors } = useTheme();
+
+  if (isLoading) {
+    return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+            <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+    );
+  }
+
+  const isAuthenticated = !!user || hasCompletedOnboarding;
 
   return (
     <Stack.Navigator
@@ -156,13 +180,8 @@ export default function RootNavigator() {
         },
       }}
     >
-      {!hasCompletedOnboarding ? (
-        <Stack.Screen
-          name="OnboardingStack"
-          component={OnboardingNavigator}
-        />
-      ) : (
-        <>
+      {isAuthenticated ? (
+        <Stack.Group>
           <Stack.Screen
             name="MainTabs"
             component={MainTabs}
@@ -186,6 +205,14 @@ export default function RootNavigator() {
             }}
           />
           <Stack.Screen
+            name="AccountSettings"
+            component={AccountSettingsScreen}
+            options={{
+              title: "Account",
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
             name="DeckSelection"
             component={DeckSelectionScreen}
             options={{
@@ -203,7 +230,20 @@ export default function RootNavigator() {
               presentation: "fullScreenModal",
             }}
           />
-        </>
+          <Stack.Screen
+            name="LogicSimulator"
+            component={LogicSimulatorScreen}
+            options={{
+              title: "Logic Simulator",
+              headerShown: false,
+            }}
+          />
+        </Stack.Group>
+      ) : (
+        <Stack.Screen
+          name="OnboardingStack"
+          component={OnboardingNavigator}
+        />
       )}
     </Stack.Navigator>
   );

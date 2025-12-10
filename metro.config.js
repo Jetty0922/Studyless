@@ -1,5 +1,4 @@
 const { getDefaultConfig } = require("expo/metro-config");
-const { withNativeWind } = require("nativewind/metro");
 
 const path = require("node:path");
 const os = require("node:os");
@@ -61,5 +60,4 @@ config.cacheStores = ({ FileStore, HttpStore }) => {
 // to invalidate existing caches.
 config.cacheVersion = metroCacheVersion;
 
-// Integrate NativeWind with the Metro configuration.
-module.exports = withNativeWind(config, { input: "./global.css" });
+module.exports = config;

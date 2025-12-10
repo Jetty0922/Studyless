@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "vibecode",
-    "slug": "vibecode",
-    "scheme": "vibecode",
+    "name": "StudyLess",
+    "slug": "studyless",
+    "scheme": "studyless",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -22,7 +22,15 @@
         "NSLocationWhenInUseUsageDescription": "This app needs your location to provide location-based study features.",
         "NSMotionUsageDescription": "This app uses motion data to track study activities.",
         "NSSpeechRecognitionUsageDescription": "This app uses speech recognition to help you study with voice commands.",
-        "NSAppleMusicUsageDescription": "This app needs access to Apple Music for background study music."
+        "NSAppleMusicUsageDescription": "This app needs access to Apple Music for background study music.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSExceptionDomains": {
+            "localhost": {
+              "NSExceptionAllowsInsecureHTTPLoads": true
+            }
+          }
+        }
       }
     },
     "android": {

@@ -27,6 +27,15 @@ export const useThemeStore = create<ThemeState>()(
   )
 );
 
+// Gradient colors for modern UI
+export const gradients = {
+  primary: ["#667eea", "#764ba2"] as const,
+  secondary: ["#f093fb", "#f5576c"] as const,
+  accent: ["#4facfe", "#00f2fe"] as const,
+  dark: ["#0f172a", "#1e293b"] as const,
+  light: ["#f8fafc", "#e2e8f0"] as const,
+};
+
 // Theme colors
 export const colors = {
   light: {
@@ -35,7 +44,7 @@ export const colors = {
     text: "#111827",
     textSecondary: "#6b7280",
     border: "#e5e7eb",
-    primary: "#3b82f6",
+    primary: "#667eea",
     primaryLight: "#dbeafe",
     success: "#10b981",
     successLight: "#d1fae5",
@@ -59,7 +68,7 @@ export const colors = {
     text: "#f1f5f9",
     textSecondary: "#94a3b8",
     border: "#334155",
-    primary: "#60a5fa",
+    primary: "#667eea",
     primaryLight: "#1e3a8a",
     success: "#34d399",
     successLight: "#064e3b",

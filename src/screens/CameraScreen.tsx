@@ -1,23 +1,25 @@
 import React, { useState, useRef } from "react";
-import { View, Text, Pressable } from "react-native";
+import { View, Text, Pressable, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { OnboardingStackParamList } from "../navigation/RootNavigator";
 import { useTheme } from "../utils/useTheme";
 
 type CameraScreenProps = {
-  navigation: any;
+  navigation: NativeStackNavigationProp<OnboardingStackParamList, "CameraScreen">;
 };
 
 export default function CameraScreen({ navigation }: CameraScreenProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const [facing, setFacing] = useState<CameraType>("back");
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
 
   if (!permission) {
     return (
-      <View className="flex-1 items-center justify-center" style={{ backgroundColor: colors.background }}>
+      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
         <Text style={{ color: colors.text }}>Loading camera...</Text>
       </View>
     );
@@ -25,26 +27,26 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
 
   if (!permission.granted) {
     return (
-      <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }}>
-        <View className="flex-1 items-center justify-center px-6">
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.permissionContainer}>
           <Ionicons name="camera-outline" size={64} color={colors.textSecondary} />
-          <Text className="text-xl font-bold text-center mt-4 mb-2" style={{ color: colors.text }}>
+          <Text style={[styles.permissionTitle, { color: colors.text }]}>
             Camera Permission Required
           </Text>
-          <Text className="text-base text-center mb-8" style={{ color: colors.textSecondary }}>
+          <Text style={[styles.permissionText, { color: colors.textSecondary }]}>
             We need access to your camera to scan your notes
           </Text>
           <Pressable
             onPress={requestPermission}
-            className="bg-blue-600 rounded-2xl py-4 px-8"
+            style={({ pressed }) => [styles.grantButton, pressed && styles.pressed]}
           >
-            <Text className="text-white text-lg font-bold">Grant Permission</Text>
+            <Text style={styles.grantButtonText}>Grant Permission</Text>
           </Pressable>
           <Pressable
             onPress={() => navigation.goBack()}
-            className="mt-4"
+            style={({ pressed }) => [styles.cancelLink, pressed && styles.pressed]}
           >
-            <Text className="text-base" style={{ color: colors.textSecondary }}>Cancel</Text>
+            <Text style={[styles.cancelLinkText, { color: colors.textSecondary }]}>Cancel</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -73,36 +75,42 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
   };
 
   return (
-    <View className="flex-1 bg-black">
+    <View style={styles.container}>
       <CameraView
         ref={cameraRef}
-        style={{ flex: 1 }}
+        style={styles.camera}
         facing={facing}
       />
 
       {/* Overlay UI */}
-      <View className="absolute top-0 left-0 right-0 bottom-0">
-        <SafeAreaView className="flex-1">
+      <View style={styles.overlay}>
+        <SafeAreaView style={styles.overlayContent}>
           {/* Top Bar */}
-          <View className="flex-row justify-between items-center px-6 py-4">
-            <Pressable onPress={handleCancel} className="p-2">
+          <View style={styles.topBar}>
+            <Pressable 
+              onPress={handleCancel} 
+              style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+            >
               <Ionicons name="close" size={32} color="white" />
             </Pressable>
 
-            <Text className="text-white text-lg font-semibold">
+            <Text style={styles.instructionText}>
               Take a photo of your notes
             </Text>
 
-            <Pressable onPress={toggleCameraFacing} className="p-2">
+            <Pressable 
+              onPress={toggleCameraFacing} 
+              style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+            >
               <Ionicons name="camera-reverse" size={32} color="white" />
             </Pressable>
           </View>
 
           {/* Capture Button */}
-          <View className="flex-1 justify-end items-center pb-12">
+          <View style={styles.captureContainer}>
             <Pressable
               onPress={handleCapture}
-              className="w-20 h-20 rounded-full bg-white border-4 border-gray-300"
+              style={({ pressed }) => [styles.captureButton, pressed && styles.captureButtonPressed]}
             />
           </View>
         </SafeAreaView>
@@ -110,3 +118,98 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  centerContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  camera: {
+    flex: 1,
+  },
+  overlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  overlayContent: {
+    flex: 1,
+  },
+  topBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+  },
+  iconButton: {
+    padding: 8,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+  instructionText: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  captureContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingBottom: 48,
+  },
+  captureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#ffffff",
+    borderWidth: 4,
+    borderColor: "#d1d5db",
+  },
+  captureButtonPressed: {
+    backgroundColor: "#e5e7eb",
+  },
+  permissionContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  permissionTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  permissionText: {
+    fontSize: 16,
+    textAlign: "center",
+    marginBottom: 32,
+  },
+  grantButton: {
+    backgroundColor: "#667eea",
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+  },
+  grantButtonText: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  cancelLink: {
+    marginTop: 16,
+  },
+  cancelLinkText: {
+    fontSize: 16,
+  },
+});

@@ -1,19 +1,17 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, Pressable, Image, StyleSheet } from "react-native";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  interpolate,
-} from "react-native-reanimated";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { ReviewRating, Flashcard } from "../types/flashcard";
-import { useThemeStore, getThemedColors } from "../state/themeStore";
+import { useTheme } from "../utils/useTheme";
+import { getIntervalPreviews } from "../utils/spacedRepetition";
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type ReviewRouteProp = RouteProp<RootStackParamList, "Review">;
@@ -26,8 +24,7 @@ export default function ReviewScreen() {
   const flashcards = useFlashcardStore((s) => s.flashcards);
   const reviewFlashcard = useFlashcardStore((s) => s.reviewFlashcard);
 
-  const theme = useThemeStore((s) => s.theme);
-  const colors = getThemedColors(theme);
+  const { colors, isDark } = useTheme();
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
@@ -35,324 +32,290 @@ export default function ReviewScreen() {
   const [sessionCards, setSessionCards] = useState<Flashcard[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  const rotation = useSharedValue(0);
+  const flipAnim = useRef(new Animated.Value(0)).current;
 
-  const frontAnimatedStyle = useAnimatedStyle(() => {
-    const rotateValue = interpolate(rotation.value, [0, 1], [0, 180]);
-    return {
-      transform: [{ rotateY: `${rotateValue}deg` }],
-      backfaceVisibility: "hidden" as any,
-    };
+  const frontInterpolate = flipAnim.interpolate({
+    inputRange: [0, 180],
+    outputRange: ['0deg', '180deg'],
   });
 
-  const backAnimatedStyle = useAnimatedStyle(() => {
-    const rotateValue = interpolate(rotation.value, [0, 1], [180, 360]);
-    return {
-      transform: [{ rotateY: `${rotateValue}deg` }],
-      backfaceVisibility: "hidden" as any,
-    };
+  const backInterpolate = flipAnim.interpolate({
+    inputRange: [0, 180],
+    outputRange: ['180deg', '360deg'],
   });
 
-  // Initialize session cards
-  useEffect(() => {
-    const initialCards = cardIds
-      .map((id) => flashcards.find((c) => c.id === id))
-      .filter((c): c is Flashcard => c !== undefined);
-    setSessionCards(initialCards);
-    setIsInitialized(true);
-  }, [cardIds, flashcards]);
+  const frontAnimatedStyle = { transform: [{ rotateY: frontInterpolate }] };
+  const backAnimatedStyle = { transform: [{ rotateY: backInterpolate }] };
 
+  // Calculate interval previews - must be before any conditional returns (React Hooks rules)
+  const currentCard = sessionCards[currentIndex];
+  const intervalPreviews = useMemo(() => {
+    if (!currentCard) return { again: "—", hard: "—", good: "—", easy: "—" };
+    return getIntervalPreviews(currentCard);
+  }, [currentCard]);
+
+  // Only initialize session cards ONCE when component mounts
+  // Don't re-run when flashcards store updates (would reset session progress)
   useEffect(() => {
-    rotation.value = 0;
-  }, [currentIndex, rotation]);
+    if (!isInitialized) {
+      const initialCards = cardIds.map((id) => flashcards.find((c) => c.id === id)).filter((c): c is Flashcard => c !== undefined);
+      setSessionCards(initialCards);
+      setIsInitialized(true);
+    }
+  }, [cardIds, flashcards, isInitialized]);
+
+  useEffect(() => { flipAnim.setValue(0); }, [currentIndex]);
 
   const handleFlip = () => {
-    rotation.value = withTiming(showAnswer ? 0 : 1, { duration: 300 });
-    setShowAnswer(!showAnswer);
+    if (showAnswer) {
+      Animated.spring(flipAnim, { toValue: 0, friction: 8, tension: 10, useNativeDriver: true }).start();
+      setShowAnswer(false);
+    } else {
+      Animated.spring(flipAnim, { toValue: 180, friction: 8, tension: 10, useNativeDriver: true }).start();
+      setShowAnswer(true);
+    }
   };
 
   const handleRating = (rating: ReviewRating) => {
-    const currentCard = sessionCards[currentIndex];
     if (!currentCard) return;
 
-    if (rating === "again") {
-      // Re-queue the card at the end of the session
+    if (rating === "AGAIN") {
       reviewFlashcard(currentCard.id, rating);
       const updatedCards = [...sessionCards];
       const cardToRequeue = updatedCards.splice(currentIndex, 1)[0];
       updatedCards.push(cardToRequeue);
       setSessionCards(updatedCards);
       setShowAnswer(false);
-      rotation.value = 0;
+      flipAnim.setValue(0);
     } else {
-      // Process the rating and move to next card
       reviewFlashcard(currentCard.id, rating);
       setReviewedCount(reviewedCount + 1);
-
       if (currentIndex < sessionCards.length - 1) {
         setCurrentIndex(currentIndex + 1);
         setShowAnswer(false);
-        rotation.value = 0;
+        flipAnim.setValue(0);
       } else {
         navigation.goBack();
       }
     }
   };
 
-  const handleClose = () => {
-    navigation.goBack();
-  };
+  const handleClose = () => navigation.goBack();
 
-  // Show loading state while initializing
   if (!isInitialized) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Loading...</Text>
-      </SafeAreaView>
+      <View style={styles.container}>
+        <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} />
+        <SafeAreaView style={styles.centerContainer}>
+          <Text style={[styles.emptyText, { color: isDark ? "#64748b" : "#94a3b8" }]}>Loading...</Text>
+        </SafeAreaView>
+      </View>
     );
   }
 
   if (sessionCards.length === 0) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No cards to review</Text>
-      </SafeAreaView>
+      <View style={styles.container}>
+        <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} />
+        <SafeAreaView style={styles.centerContainer}>
+          <Text style={[styles.emptyText, { color: isDark ? "#64748b" : "#94a3b8" }]}>No cards to review</Text>
+        </SafeAreaView>
+      </View>
     );
   }
 
-  const currentCard = sessionCards[currentIndex];
   if (!currentCard) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Card not found</Text>
-      </SafeAreaView>
+      <View style={styles.container}>
+        <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} />
+        <SafeAreaView style={styles.centerContainer}>
+          <Text style={[styles.emptyText, { color: isDark ? "#64748b" : "#94a3b8" }]}>Card not found</Text>
+        </SafeAreaView>
+      </View>
     );
   }
 
   const progress = ((currentIndex + 1) / sessionCards.length) * 100;
 
   return (
-    <SafeAreaView style={[styles.mainContainer, { backgroundColor: colors.background }]}>
-      <View style={styles.content}>
+    <View style={styles.container}>
+      <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+
+      <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+        {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={handleClose} style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}>
-            <Ionicons name="close" size={24} color={colors.text} />
+          <Pressable onPress={handleClose} style={styles.closeButton}>
+            <Ionicons name="close" size={24} color={isDark ? "#f1f5f9" : "#1e293b"} />
           </Pressable>
           <View style={styles.progressContainer}>
-            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-              <View style={[styles.progressFill, { width: `${progress}%`, backgroundColor: colors.primary }]} />
+            <View style={[styles.progressBar, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>
+              <LinearGradient colors={["#667eea", "#764ba2"]} style={[styles.progressFill, { width: `${progress}%` }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
             </View>
-            <Text style={[styles.progressText, { color: colors.text }]}>
-              {currentIndex + 1} of {sessionCards.length}
-            </Text>
+            <Text style={[styles.progressText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{currentIndex + 1} of {sessionCards.length}</Text>
           </View>
           <View style={styles.spacer} />
         </View>
 
+        {/* Card */}
         <View style={styles.cardContainer}>
-          <Pressable onPress={handleFlip} style={[styles.card, { backgroundColor: colors.surface }]}>
-            <Animated.View style={[styles.cardFace, styles.cardFront, frontAnimatedStyle]}>
-              <Text style={[styles.frontText, { color: colors.text }]}>{currentCard.front}</Text>
-              {currentCard.imageUri && (
-                <Image source={{ uri: currentCard.imageUri }} style={styles.cardImage} resizeMode="cover" />
-              )}
-              <View style={styles.tapHint}>
-                <Text style={[styles.tapHintText, { color: colors.textSecondary }]}>Tap to reveal</Text>
-              </View>
-            </Animated.View>
+          <Pressable onPress={handleFlip} style={styles.cardWrapper}>
+            <LinearGradient colors={isDark ? ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)"] : ["rgba(255,255,255,0.9)", "rgba(255,255,255,0.7)"]} style={styles.card} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+              <Animated.View style={[styles.cardFace, frontAnimatedStyle, { backfaceVisibility: 'hidden' }]}>
+                <Text style={[styles.frontText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{currentCard.front}</Text>
+                {/* Only show image if imageUri exists AND there's no fileUri (fileUri indicates PDF source) */}
+                {currentCard.imageUri && !currentCard.fileUri && <Image source={{ uri: currentCard.imageUri }} style={styles.cardImage} resizeMode="cover" />}
+                <View style={styles.tapHint}>
+                  <View style={[styles.tapHintPill, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]}>
+                    <Ionicons name="swap-horizontal" size={14} color={isDark ? "#64748b" : "#94a3b8"} />
+                    <Text style={[styles.tapHintText, { color: isDark ? "#64748b" : "#94a3b8" }]}>Tap to reveal</Text>
+                  </View>
+                </View>
+              </Animated.View>
 
-            <Animated.View style={[styles.cardFace, styles.cardBack, { backgroundColor: colors.surface }, backAnimatedStyle]}>
-              <Text style={[styles.backText, { color: colors.text }]}>{currentCard.back}</Text>
-            </Animated.View>
+              <Animated.View style={[styles.cardFace, styles.cardBack, backAnimatedStyle, { backfaceVisibility: 'hidden' }]}>
+                <LinearGradient colors={isDark ? ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)"] : ["rgba(255,255,255,0.9)", "rgba(255,255,255,0.7)"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+                <Text style={[styles.backText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{currentCard.back}</Text>
+              </Animated.View>
+            </LinearGradient>
           </Pressable>
         </View>
 
+        {/* Rating Buttons */}
         {showAnswer && (
           <View style={styles.ratingContainer}>
-            <Text style={[styles.ratingTitle, { color: colors.text }]}>How well did you know this?</Text>
-            <View style={styles.ratingButtonsGrid}>
-              <View style={[styles.buttonBox, { backgroundColor: "#ef4444" }]}>
-                <Pressable onPress={() => handleRating("again")} style={({ pressed }) => [styles.gridButton, pressed && styles.pressed]}>
-                  <Text style={styles.gridButtonText}>Again</Text>
-                  <Text style={styles.gridButtonSubtext}>10m</Text>
-                </Pressable>
-              </View>
+            <Text style={[styles.ratingTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>How well did you know this?</Text>
+            <View style={styles.ratingButtonsRow}>
+              <Pressable onPress={() => handleRating("AGAIN")} style={({ pressed }) => [styles.ratingButton, pressed && styles.pressed]}>
+                <LinearGradient colors={["#ef4444", "#dc2626"]} style={styles.ratingButtonGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                  <Text style={styles.ratingButtonText}>Again</Text>
+                  <Text style={styles.ratingButtonSubtext}>{intervalPreviews.again}</Text>
+                </LinearGradient>
+              </Pressable>
 
-              <View style={[styles.buttonBox, { backgroundColor: "#f97316" }]}>
-                <Pressable onPress={() => handleRating("hard")} style={({ pressed }) => [styles.gridButton, pressed && styles.pressed]}>
-                  <Text style={styles.gridButtonText}>Hard</Text>
-                  <Text style={styles.gridButtonSubtext}>1d</Text>
-                </Pressable>
-              </View>
+              <Pressable onPress={() => handleRating("HARD")} style={({ pressed }) => [styles.ratingButton, pressed && styles.pressed]}>
+                <LinearGradient colors={["#f97316", "#ea580c"]} style={styles.ratingButtonGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                  <Text style={styles.ratingButtonText}>Hard</Text>
+                  <Text style={styles.ratingButtonSubtext}>{intervalPreviews.hard}</Text>
+                </LinearGradient>
+              </Pressable>
 
-              <View style={[styles.buttonBox, { backgroundColor: "#22c55e" }]}>
-                <Pressable onPress={() => handleRating("good")} style={({ pressed }) => [styles.gridButton, pressed && styles.pressed]}>
-                  <Text style={styles.gridButtonText}>Good</Text>
-                  <Text style={styles.gridButtonSubtext}>3d</Text>
-                </Pressable>
-              </View>
+              <Pressable onPress={() => handleRating("GOOD")} style={({ pressed }) => [styles.ratingButton, pressed && styles.pressed]}>
+                <LinearGradient colors={["#10b981", "#059669"]} style={styles.ratingButtonGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                  <Text style={styles.ratingButtonText}>Good</Text>
+                  <Text style={styles.ratingButtonSubtext}>{intervalPreviews.good}</Text>
+                </LinearGradient>
+              </Pressable>
 
-              <View style={[styles.buttonBox, { backgroundColor: "#3b82f6" }]}>
-                <Pressable onPress={() => handleRating("easy")} style={({ pressed }) => [styles.gridButton, pressed && styles.pressed]}>
-                  <Text style={styles.gridButtonText}>Easy</Text>
-                  <Text style={styles.gridButtonSubtext}>1w</Text>
-                </Pressable>
-              </View>
+              <Pressable onPress={() => handleRating("EASY")} style={({ pressed }) => [styles.ratingButton, pressed && styles.pressed]}>
+                <LinearGradient colors={["#667eea", "#764ba2"]} style={styles.ratingButtonGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                  <Text style={styles.ratingButtonText}>Easy</Text>
+                  <Text style={styles.ratingButtonSubtext}>{intervalPreviews.easy}</Text>
+                </LinearGradient>
+              </Pressable>
             </View>
           </View>
         )}
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
+const BUTTON_WIDTH = (SCREEN_WIDTH - 56) / 4; // 20px padding on each side + 16px total gaps
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyText: {
-    fontSize: 20,
-  },
-  mainContainer: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    flexDirection: "row",
-    alignItems: "center",
+  container: { flex: 1 },
+  centerContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
+  emptyText: { fontSize: 18 },
+  safeArea: { flex: 1 },
+  header: { 
+    paddingHorizontal: 16, 
+    paddingTop: 8, 
+    paddingBottom: 8, 
+    flexDirection: "row", 
+    alignItems: "center", 
     justifyContent: "space-between",
-  },
-  closeButton: {
-    padding: 4,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  progressContainer: {
-    flex: 1,
-    marginHorizontal: 12,
-  },
-  progressBar: {
-    height: 5,
-    borderRadius: 9999,
     overflow: "hidden",
+    maxWidth: SCREEN_WIDTH,
   },
-  progressFill: {
-    height: "100%",
-    borderRadius: 9999,
+  closeButton: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    alignItems: "center", 
+    justifyContent: "center",
+    flexShrink: 0,
   },
-  progressText: {
-    fontSize: 12,
-    fontWeight: "500",
-    textAlign: "center",
-    marginTop: 4,
+  pressed: { opacity: 0.7 },
+  progressContainer: { 
+    flex: 1, 
+    marginHorizontal: 8,
+    minWidth: 0, // Allow shrinking below content size
+    maxWidth: SCREEN_WIDTH - 120, // Account for close button, spacer, and padding
   },
-  spacer: {
-    width: 32,
+  progressBar: { height: 6, borderRadius: 3, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 3 },
+  progressText: { fontSize: 13, fontWeight: "600", textAlign: "center", marginTop: 6 },
+  spacer: { width: 40, flexShrink: 0 },
+  cardContainer: { 
+    flex: 1, 
+    paddingHorizontal: 16, 
+    justifyContent: "center",
+    paddingVertical: 16,
   },
-  cardContainer: {
+  cardWrapper: { flex: 1, maxHeight: 340 },
+  card: { 
+    flex: 1, 
+    borderRadius: 24, 
+    shadowColor: "#000", 
+    shadowOffset: { width: 0, height: 8 }, 
+    shadowOpacity: 0.15, 
+    shadowRadius: 24, 
+    elevation: 10, 
+    borderWidth: 1, 
+    borderColor: "rgba(255,255,255,0.2)" 
+  },
+  cardFace: { 
+    width: '100%', 
+    height: '100%', 
+    padding: 24, 
+    justifyContent: "center", 
+    alignItems: "center", 
+    borderRadius: 24 
+  },
+  cardBack: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 24 },
+  frontText: { fontSize: 22, fontWeight: "700", textAlign: "center", lineHeight: 32 },
+  backText: { fontSize: 18, fontWeight: "600", textAlign: "center", lineHeight: 26 },
+  cardImage: { width: "100%", height: 140, borderRadius: 16, marginTop: 20 },
+  tapHint: { position: "absolute", bottom: 20 },
+  tapHintPill: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, gap: 6 },
+  tapHintText: { fontSize: 12, fontWeight: "500" },
+  ratingContainer: { 
+    paddingHorizontal: 16, 
+    paddingBottom: 16,
+    paddingTop: 8,
+  },
+  ratingTitle: { textAlign: "center", fontWeight: "600", fontSize: 15, marginBottom: 12 },
+  ratingButtonsRow: { 
+    flexDirection: "row", 
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  ratingButton: { 
     flex: 1,
-    paddingHorizontal: 20,
-    justifyContent: "center",
-    paddingBottom: 60,
+    borderRadius: 24, 
+    overflow: "hidden", 
+    shadowColor: "#000", 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 8, 
+    elevation: 3 
   },
-  card: {
-    borderRadius: 24,
-    minHeight: 320,
-    padding: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+  ratingButtonGradient: { 
+    paddingVertical: 14, 
+    paddingHorizontal: 8, 
+    alignItems: "center", 
+    justifyContent: "center" 
   },
-  cardFace: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: 24,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  cardFront: {
-    backgroundColor: "transparent",
-  },
-  cardBack: {
-    borderRadius: 24,
-  },
-  frontText: {
-    fontSize: 24,
-    fontWeight: "bold",
-    textAlign: "center",
-  },
-  backText: {
-    fontSize: 19,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  cardImage: {
-    width: "100%",
-    height: 192,
-    borderRadius: 16,
-    marginTop: 24,
-  },
-  tapHint: {
-    position: "absolute",
-    bottom: 24,
-  },
-  tapHintText: {
-    fontSize: 12,
-    textAlign: "center",
-  },
-  ratingContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 28,
-    paddingTop: 16,
-  },
-  ratingTitle: {
-    textAlign: "center",
-    fontWeight: "600",
-    fontSize: 15,
-    marginBottom: 18,
-  },
-  ratingButtonsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 14,
-    justifyContent: "center",
-  },
-  buttonBox: {
-    width: "48%",
-    borderRadius: 18,
-    overflow: "hidden",
-  },
-  gridButton: {
-    paddingVertical: 36,
-    paddingHorizontal: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 120,
-  },
-  gridButtonText: {
-    color: "#ffffff",
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 10,
-    textAlign: "center",
-  },
-  gridButtonSubtext: {
-    color: "rgba(255, 255, 255, 0.95)",
-    fontSize: 16,
-    fontWeight: "600",
-    textAlign: "center",
-  },
+  ratingButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "700", marginBottom: 2 },
+  ratingButtonSubtext: { color: "rgba(255, 255, 255, 0.85)", fontSize: 11, fontWeight: "600" },
 });

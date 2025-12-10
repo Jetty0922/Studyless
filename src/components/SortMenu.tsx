@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Pressable, Modal } from "react-native";
+import { View, Text, Pressable, Modal, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../utils/useTheme";
 
@@ -25,7 +25,7 @@ export function SortMenu({
   onSelect,
   title = "Sort by"
 }: SortMenuProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
 
   return (
     <Modal
@@ -34,47 +34,55 @@ export function SortMenu({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable
-        className="flex-1 bg-black/50 justify-end"
-        onPress={onClose}
-      >
+      <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable onPress={(e) => e.stopPropagation()}>
-          <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
-            <Text className="text-xl font-bold mb-4" style={{ color: colors.text }}>{title}</Text>
+          <View style={[styles.menuContainer, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
 
-            <View className="gap-2">
-              {options.map((option) => (
-                <Pressable
-                  key={option.value}
-                  onPress={() => {
-                    onSelect(option.value);
-                    onClose();
-                  }}
-                  className="flex-row items-center justify-between py-3 px-4 rounded-xl active:opacity-70"
-                  style={{ backgroundColor: selectedValue === option.value ? colors.primaryLight : "transparent" }}
-                >
-                  <Text
-                    className="text-base"
-                    style={{
-                      color: selectedValue === option.value ? colors.primary : colors.text,
-                      fontWeight: selectedValue === option.value ? "bold" : "normal"
+            <View style={styles.optionsContainer}>
+              {options.map((option) => {
+                const isSelected = selectedValue === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    onPress={() => {
+                      onSelect(option.value);
+                      onClose();
                     }}
+                    style={({ pressed }) => [
+                      styles.optionButton,
+                      { backgroundColor: isSelected ? colors.primaryLight : "transparent" },
+                      pressed && styles.pressed
+                    ]}
                   >
-                    {option.label}
-                  </Text>
-                  {selectedValue === option.value && (
-                    <Ionicons name="checkmark" size={24} color={colors.primary} />
-                  )}
-                </Pressable>
-              ))}
+                    <Text
+                      style={[
+                        styles.optionText,
+                        {
+                          color: isSelected ? colors.primary : colors.text,
+                          fontWeight: isSelected ? "700" : "400"
+                        }
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                    {isSelected && (
+                      <Ionicons name="checkmark" size={24} color={colors.primary} />
+                    )}
+                  </Pressable>
+                );
+              })}
             </View>
 
             <Pressable
               onPress={onClose}
-              className="mt-4 rounded-xl py-4 items-center active:opacity-70"
-              style={{ backgroundColor: colors.border }}
+              style={({ pressed }) => [
+                styles.cancelButton,
+                { backgroundColor: isDark ? "#0f172a" : colors.border },
+                pressed && styles.pressed
+              ]}
             >
-              <Text className="font-semibold text-base" style={{ color: colors.textSecondary }}>Cancel</Text>
+              <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Cancel</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -82,3 +90,48 @@ export function SortMenu({
     </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  menuContainer: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 16,
+  },
+  optionsContainer: {
+    gap: 8,
+  },
+  optionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+  optionText: {
+    fontSize: 16,
+  },
+  cancelButton: {
+    marginTop: 16,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  cancelText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+});

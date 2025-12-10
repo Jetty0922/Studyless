@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable, Modal, TextInput, Alert, Platform } from "react-native";
+import { View, Text, ScrollView, Pressable, Modal, TextInput, Alert, Platform, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,24 +10,17 @@ import { RootStackParamList } from "../navigation/RootNavigator";
 import { format, differenceInDays } from "date-fns";
 import { useTheme } from "../utils/useTheme";
 import { SortMenu } from "../components/SortMenu";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import { GlassCard } from "../components/ui";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
 type DeckSortOption = "testDate" | "name" | "progress";
 type TabMode = "TEST_PREP" | "LONG_TERM";
 
-const DECK_COLORS = [
-  "#3b82f6", // blue
-  "#8b5cf6", // purple
-  "#ec4899", // pink
-  "#f97316", // orange
-  "#10b981", // green
-  "#ef4444", // red
-];
+const DECK_COLORS = ["#667eea", "#8b5cf6", "#ec4899", "#f97316", "#10b981", "#ef4444"];
 
 export default function DecksListScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const decks = useFlashcardStore((s) => s.decks);
   const flashcards = useFlashcardStore((s) => s.flashcards);
@@ -39,100 +33,54 @@ export default function DecksListScreen() {
   const [newDeckName, setNewDeckName] = useState("");
   const [selectedColor, setSelectedColor] = useState(DECK_COLORS[0]);
   const [deckMode, setDeckMode] = useState<"TEST_PREP" | "LONG_TERM">("TEST_PREP");
-  const [testDate, setTestDate] = useState<Date | undefined>(undefined);
+  const defaultTestDate = React.useMemo(() => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), []);
+  const [testDate, setTestDate] = useState<Date | undefined>(defaultTestDate);
+  const [pickerDate, setPickerDate] = useState<Date>(defaultTestDate);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // Get deck stats with urgency calculation
   const deckStats = decks.map((deck) => {
     const deckCards = flashcards.filter((card) => card.deckId === deck.id);
-
-    const masteredCount = deckCards.filter(
-      (c) => c.mastery === "MASTERED"
-    ).length;
-    const masteredPct = deckCards.length > 0
-      ? Math.round((masteredCount / deckCards.length) * 100)
-      : 0;
-
-    const learningCount = deckCards.filter(
-      (c) => c.mastery === "LEARNING"
-    ).length;
-
-    const strugglingCount = deckCards.filter(
-      (c) => c.mastery === "STRUGGLING"
-    ).length;
-
+    const masteredCount = deckCards.filter((c) => c.mastery === "MASTERED").length;
+    const masteredPct = deckCards.length > 0 ? Math.round((masteredCount / deckCards.length) * 100) : 0;
+    const learningCount = deckCards.filter((c) => c.mastery === "LEARNING").length;
+    const strugglingCount = deckCards.filter((c) => c.mastery === "STRUGGLING").length;
     const hasTest = deck.testDate && new Date(deck.testDate) > new Date();
     const testPassed = deck.testDate && new Date(deck.testDate) < new Date();
     const isLongTerm = deck.mode === "LONG_TERM";
     const isArchived = deck.status === "completed";
-    const daysLeft = deck.testDate
-      ? differenceInDays(new Date(deck.testDate), new Date())
-      : null;
+    const daysLeft = deck.testDate ? differenceInDays(new Date(deck.testDate), new Date()) : null;
 
-    // Determine urgency level based on days left
     let urgencyLevel: "critical" | "warning" | "normal" | "none" = "none";
-    let urgencyColor = colors.border;
-    let urgencyBg = colors.background;
-    let urgencyText = colors.textSecondary;
+    let urgencyBg = isDark ? "rgba(102, 126, 234, 0.2)" : "#eef2ff";
+    let urgencyText = "#667eea";
 
     if (hasTest && daysLeft !== null) {
       if (daysLeft <= 3) {
         urgencyLevel = "critical";
-        urgencyColor = "#ef4444"; // Red
-        urgencyBg = "#fee2e2"; // Red light
-        urgencyText = "#991b1b"; // Red dark
+        urgencyBg = isDark ? "rgba(239, 68, 68, 0.2)" : "#fee2e2";
+        urgencyText = "#ef4444";
       } else if (daysLeft <= 7) {
         urgencyLevel = "warning";
-        urgencyColor = "#f97316"; // Orange
-        urgencyBg = "#ffedd5"; // Orange light
-        urgencyText = "#9a3412"; // Orange dark
+        urgencyBg = isDark ? "rgba(249, 115, 22, 0.2)" : "#ffedd5";
+        urgencyText = "#f97316";
       } else {
         urgencyLevel = "normal";
-        urgencyColor = colors.primary;
-        urgencyBg = colors.primaryLight;
-        urgencyText = colors.primary;
       }
     }
 
-    return {
-      ...deck,
-      cardCount: deckCards.length,
-      masteredPct,
-      masteredCount,
-      learningCount,
-      strugglingCount,
-      daysLeft,
-      hasTest,
-      testPassed,
-      isLongTerm,
-      isArchived,
-      urgencyLevel,
-      urgencyColor,
-      urgencyBg,
-      urgencyText,
-    };
+    return { ...deck, cardCount: deckCards.length, masteredPct, masteredCount, learningCount, strugglingCount, daysLeft, hasTest, testPassed, isLongTerm, isArchived, urgencyLevel, urgencyBg, urgencyText };
   });
 
-  // Filter decks by active tab
   const filteredDecks = deckStats.filter((deck) => deck.mode === activeTab);
-
-  // Sort decks based on selected option
   const sortedDecks = [...filteredDecks].sort((a, b) => {
     if (sortBy === "testDate") {
-      // Decks with no test date go to the end
       if (!a.hasTest && !b.hasTest) return 0;
       if (!a.hasTest) return 1;
       if (!b.hasTest) return -1;
-      // Sort by days left (soonest first)
       return (a.daysLeft ?? Infinity) - (b.daysLeft ?? Infinity);
-    } else if (sortBy === "name") {
-      return a.name.localeCompare(b.name);
-    } else if (sortBy === "progress") {
-      return b.masteredPct - a.masteredPct;
-    } else {
-      // createdDate - Since we don't have a createdAt field, sort by name as fallback
-      return a.name.localeCompare(b.name);
-    }
+    } else if (sortBy === "name") return a.name.localeCompare(b.name);
+    else if (sortBy === "progress") return b.masteredPct - a.masteredPct;
+    return a.name.localeCompare(b.name);
   });
 
   const getSortLabel = () => {
@@ -142,589 +90,357 @@ export default function DecksListScreen() {
     return "Test Date";
   };
 
-  const handleCreateDeck = () => {
-    if (!newDeckName.trim()) {
-      Alert.alert("Error", "Deck name cannot be empty");
-      return;
-    }
-    if (deckMode === "TEST_PREP" && !testDate) {
-      Alert.alert("Error", "Please set a test date (even if it's just a guess)");
-      return;
-    }
-    const deckId = addDeck(
-      newDeckName.trim(),
-      selectedColor,
-      undefined,
-      deckMode === "TEST_PREP" ? testDate : undefined,
-      deckMode
-    );
-    setNewDeckName("");
-    setSelectedColor(DECK_COLORS[0]);
-    setDeckMode("TEST_PREP");
-    setTestDate(undefined);
-    setShowCreateModal(false);
-    navigation.navigate("Deck", { deckId });
+  const handleCreateDeck = async () => {
+    if (!newDeckName.trim()) { Alert.alert("Error", "Deck name cannot be empty"); return; }
+    if (deckMode === "TEST_PREP" && !testDate) { Alert.alert("Error", "Please set a test date"); return; }
+    try {
+      const deckId = await addDeck(newDeckName.trim(), selectedColor, undefined, deckMode === "TEST_PREP" ? testDate : undefined, deckMode);
+      const resetDate = defaultTestDate;
+      setNewDeckName(""); 
+      setSelectedColor(DECK_COLORS[0]); 
+      setDeckMode("TEST_PREP"); 
+      setTestDate(resetDate); 
+      setPickerDate(resetDate);
+      setShowCreateModal(false);
+      navigation.navigate("Deck", { deckId });
+    } catch (error) { Alert.alert("Error", "Failed to create deck"); }
   };
 
-  const handleDateChange = (event: any, selectedDate?: Date) => {
+  const handleDateChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
+    // Keep pickerDate in sync for both platforms
+    if (selectedDate) {
+      setPickerDate(selectedDate);
+      // Android only fires onChange when a value is confirmed
+      if (Platform.OS === "android") {
+        setTestDate(selectedDate);
+      }
+    }
     if (Platform.OS === "android") {
       setShowDatePicker(false);
     }
-    if (selectedDate) {
-      setTestDate(selectedDate);
-    }
+  };
+
+  const openDatePicker = () => {
+    const initial = testDate || defaultTestDate;
+    setPickerDate(initial);
+    setShowDatePicker(true);
+  };
+
+  const handleDateConfirm = () => {
+    setTestDate(pickerDate || defaultTestDate);
+    setShowDatePicker(false);
+  };
+
+  const handleDateCancel = () => {
+    setShowDatePicker(false);
   };
 
   return (
-    <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }} edges={["top"]}>
-      <View className="flex-1">
+    <View style={styles.container}>
+      <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+      <View style={[styles.floatingShape, styles.shape1, { backgroundColor: isDark ? "#667eea" : "#a5b4fc" }]} />
+      <View style={[styles.floatingShape, styles.shape2, { backgroundColor: isDark ? "#f093fb" : "#c4b5fd" }]} />
+
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         {/* Header */}
-        <View className="px-6 pt-6 pb-4 border-b flex-row items-center justify-between" style={{ backgroundColor: colors.surface, borderBottomColor: colors.border }}>
-          <Text className="text-3xl font-bold" style={{ color: colors.text }}>Decks</Text>
-          <Pressable
-            onPress={() => setShowCreateModal(true)}
-            className="w-11 h-11 rounded-full items-center justify-center active:opacity-70"
-            style={{ backgroundColor: colors.primary }}
-          >
-            <Ionicons name="add" size={28} color="white" />
+        <View style={styles.header}>
+          <Text style={[styles.headerTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Decks</Text>
+          <Pressable onPress={() => setShowCreateModal(true)} style={styles.addButton}>
+            <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+            <Ionicons name="add" size={26} color="white" />
           </Pressable>
         </View>
 
-        {/* Tab Navigation */}
-        <View className="px-6 pt-4 pb-2" style={{ backgroundColor: colors.surface }}>
-          <View className="flex-row rounded-xl p-1" style={{ backgroundColor: colors.background }}>
-            <Pressable
-              onPress={() => setActiveTab("TEST_PREP")}
-              className="flex-1 rounded-lg py-2.5 active:opacity-70"
-              style={{
-                backgroundColor: activeTab === "TEST_PREP" ? colors.primary : "transparent",
-              }}
-            >
-              <Text
-                className="text-center text-sm font-semibold"
-                style={{ color: activeTab === "TEST_PREP" ? "white" : colors.textSecondary }}
-              >
-                Test Preparation
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setActiveTab("LONG_TERM")}
-              className="flex-1 rounded-lg py-2.5 active:opacity-70"
-              style={{
-                backgroundColor: activeTab === "LONG_TERM" ? "#10b981" : "transparent",
-              }}
-            >
-              <Text
-                className="text-center text-sm font-semibold"
-                style={{ color: activeTab === "LONG_TERM" ? "white" : colors.textSecondary }}
-              >
-                Long-Term Memory
-              </Text>
-            </Pressable>
-          </View>
+        {/* Tabs */}
+        <View style={styles.tabContainer}>
+          <GlassCard padding={4} borderRadius={16}>
+            <View style={styles.tabRow}>
+              <Pressable onPress={() => setActiveTab("TEST_PREP")} style={[styles.tab, activeTab === "TEST_PREP" && styles.tabActive]}>
+                {activeTab === "TEST_PREP" && <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />}
+                <Text style={[styles.tabText, { color: activeTab === "TEST_PREP" ? "#ffffff" : isDark ? "#94a3b8" : "#64748b" }]}>Test Prep</Text>
+              </Pressable>
+              <Pressable onPress={() => setActiveTab("LONG_TERM")} style={[styles.tab, activeTab === "LONG_TERM" && styles.tabActiveLongTerm]}>
+                {activeTab === "LONG_TERM" && <LinearGradient colors={["#10b981", "#059669"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />}
+                <Text style={[styles.tabText, { color: activeTab === "LONG_TERM" ? "#ffffff" : isDark ? "#94a3b8" : "#64748b" }]}>Long-Term</Text>
+              </Pressable>
+            </View>
+          </GlassCard>
         </View>
 
-        <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-          <View className="px-6 py-6">
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <View style={styles.content}>
             {sortedDecks.length === 0 ? (
-              <View className="items-center justify-center py-20">
-                <Ionicons name="albums-outline" size={64} color={colors.textSecondary} />
-                <Text className="text-xl font-semibold mt-4 mb-2" style={{ color: colors.text }}>
+              <View style={styles.emptyState}>
+                <Ionicons name="albums-outline" size={64} color={isDark ? "#64748b" : "#94a3b8"} />
+                <Text style={[styles.emptyTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>
                   {activeTab === "TEST_PREP" ? "No Test Prep Decks" : "No Long-Term Decks"}
                 </Text>
-                <Text className="text-center" style={{ color: colors.textSecondary }}>
-                  {activeTab === "TEST_PREP"
-                    ? "Create a deck to prepare for your upcoming tests"
-                    : "Convert test prep decks to long-term memory mode"}
+                <Text style={[styles.emptySubtitle, { color: isDark ? "#64748b" : "#94a3b8" }]}>
+                  {activeTab === "TEST_PREP" ? "Create a deck to prepare for your tests" : "Convert test prep decks to long-term mode"}
                 </Text>
               </View>
             ) : (
               <>
                 {/* Sort Button */}
-                <Pressable
-                  onPress={() => setShowSortMenu(true)}
-                  className="flex-row items-center justify-between rounded-xl p-3 mb-4 border active:opacity-70"
-                  style={{ backgroundColor: colors.surface, borderColor: colors.border }}
-                >
-                  <View className="flex-row items-center">
-                    <Ionicons name="funnel-outline" size={18} color={colors.textSecondary} />
-                    <Text className="text-sm ml-2" style={{ color: colors.text }}>
-                      Sort by: <Text className="font-semibold">{getSortLabel()}</Text>
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+                <Pressable onPress={() => setShowSortMenu(true)}>
+                  <GlassCard style={styles.sortButton} padding={12}>
+                    <View style={styles.sortButtonContent}>
+                      <View style={styles.sortButtonLeft}>
+                        <Ionicons name="funnel-outline" size={16} color={isDark ? "#94a3b8" : "#64748b"} />
+                        <Text style={[styles.sortButtonText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>
+                          Sort: <Text style={styles.sortButtonValue}>{getSortLabel()}</Text>
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-down" size={16} color={isDark ? "#64748b" : "#94a3b8"} />
+                    </View>
+                  </GlassCard>
                 </Pressable>
 
-                {/* Decks List */}
-                <View className="gap-4">
+                {/* Deck Cards */}
+                <View style={styles.decksList}>
                   {sortedDecks.map((deck) => (
-                    <Pressable
-                      key={deck.id}
-                      onPress={() => navigation.navigate("Deck", { deckId: deck.id })}
-                      className="rounded-3xl p-5 active:opacity-70"
-                      style={{
-                        backgroundColor: colors.surface,
-                      }}
-                    >
-                      {/* Status Badges */}
-                      {(deck.testPassed || deck.isLongTerm || deck.isArchived) && !deck.hasTest && (
-                        <View className="absolute top-3 right-3 flex-row gap-2">
-                          {deck.isLongTerm && (
-                            <View
-                              className="px-3 py-1 rounded-full flex-row items-center"
-                              style={{ backgroundColor: "#d1fae5" }}
-                            >
-                              <Ionicons name="repeat" size={12} color="#10b981" />
-                              <Text className="text-xs font-bold ml-1" style={{ color: "#10b981" }}>
-                                LONG-TERM
+                    <Pressable key={deck.id} onPress={() => navigation.navigate("Deck", { deckId: deck.id })}>
+                      <GlassCard style={styles.deckCard}>
+                        {/* Badge */}
+                        {deck.hasTest && deck.urgencyLevel !== "none" && (
+                          <View style={[styles.urgencyBadge, { backgroundColor: deck.urgencyBg }]}>
+                            <Ionicons name={deck.urgencyLevel === "critical" ? "alert-circle" : "time-outline"} size={12} color={deck.urgencyText} />
+                            <Text style={[styles.urgencyText, { color: deck.urgencyText }]}>
+                              {deck.daysLeft === 0 ? "TODAY" : deck.daysLeft === 1 ? "TOMORROW" : `${deck.daysLeft}d`}
+                            </Text>
+                          </View>
+                        )}
+                        {deck.isLongTerm && !deck.hasTest && (
+                          <View style={[styles.urgencyBadge, { backgroundColor: isDark ? "rgba(16, 185, 129, 0.2)" : "#d1fae5" }]}>
+                            <Ionicons name="repeat" size={12} color="#10b981" />
+                            <Text style={[styles.urgencyText, { color: "#10b981" }]}>LONG-TERM</Text>
+                          </View>
+                        )}
+
+                        {/* Header */}
+                        <View style={styles.deckHeader}>
+                          <View style={[styles.deckDot, { backgroundColor: deck.color }]} />
+                          <Text style={[styles.deckName, { color: isDark ? "#f1f5f9" : "#1e293b" }]} numberOfLines={1}>{deck.name}</Text>
+                        </View>
+
+                        {/* Card count */}
+                        <View style={styles.cardCountRow}>
+                          <Ionicons name="layers-outline" size={16} color={isDark ? "#64748b" : "#94a3b8"} />
+                          <Text style={[styles.cardCountText, { color: isDark ? "#94a3b8" : "#64748b" }]}>{deck.cardCount} cards</Text>
+                        </View>
+
+                        {/* Progress */}
+                        <View style={styles.progressSection}>
+                          <View style={styles.progressHeader}>
+                            <Text style={[styles.progressLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>Progress</Text>
+                            <Text style={[styles.progressValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{deck.masteredPct}%</Text>
+                          </View>
+                          <View style={[styles.progressBar, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>
+                            <View style={[styles.progressFill, { width: `${deck.masteredPct}%`, backgroundColor: deck.masteredPct >= 80 ? "#10b981" : deck.masteredPct >= 50 ? "#667eea" : "#f97316" }]} />
+                          </View>
+                        </View>
+
+                        {/* Stats */}
+                        <View style={styles.statsRow}>
+                          <View style={[styles.statItem, { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)" }]}>
+                            <View style={[styles.statDot, { backgroundColor: "#10b981" }]} />
+                            <Text style={[styles.statLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Mastered</Text>
+                            <Text style={[styles.statValue, { color: "#10b981" }]}>{deck.masteredCount}</Text>
+                          </View>
+                          <View style={[styles.statItem, { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)" }]}>
+                            <View style={[styles.statDot, { backgroundColor: "#667eea" }]} />
+                            <Text style={[styles.statLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Learning</Text>
+                            <Text style={[styles.statValue, { color: "#667eea" }]}>{deck.learningCount}</Text>
+                          </View>
+                          <View style={[styles.statItem, { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)" }]}>
+                            <View style={[styles.statDot, { backgroundColor: "#f97316" }]} />
+                            <Text style={[styles.statLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Struggling</Text>
+                            <Text style={[styles.statValue, { color: "#f97316" }]}>{deck.strugglingCount}</Text>
+                          </View>
+                        </View>
+
+                        {/* Test Date */}
+                        {deck.testDate && (
+                          <View style={[styles.testDateRow, { backgroundColor: deck.urgencyBg }]}>
+                            <View style={styles.testDateLeft}>
+                              <Ionicons name="calendar-outline" size={14} color={deck.urgencyText} />
+                              <Text style={[styles.testDateText, { color: deck.urgencyText }]}>
+                                Test: {format(new Date(deck.testDate), "MMM d, yyyy")}
                               </Text>
                             </View>
-                          )}
-                          {deck.testPassed && !deck.isLongTerm && !deck.isArchived && (
-                            <View
-                              className="px-3 py-1 rounded-full flex-row items-center"
-                              style={{ backgroundColor: "#dbeafe" }}
-                            >
-                              <Ionicons name="checkmark-circle" size={12} color="#3b82f6" />
-                              <Text className="text-xs font-bold ml-1" style={{ color: "#3b82f6" }}>
-                                TEST PASSED
-                              </Text>
-                            </View>
-                          )}
-                          {deck.isArchived && (
-                            <View
-                              className="px-3 py-1 rounded-full flex-row items-center"
-                              style={{ backgroundColor: colors.border }}
-                            >
-                              <Ionicons name="archive" size={12} color={colors.textSecondary} />
-                              <Text className="text-xs font-bold ml-1" style={{ color: colors.textSecondary }}>
-                                ARCHIVED
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                      )}
-
-                      {/* Urgency Badge - Only show if test is upcoming */}
-                      {deck.hasTest && deck.urgencyLevel !== "none" && (
-                        <View
-                          className="absolute top-3 right-3 px-3 py-1 rounded-full flex-row items-center"
-                          style={{ backgroundColor: deck.urgencyBg }}
-                        >
-                          <Ionicons
-                            name={deck.urgencyLevel === "critical" ? "alert-circle" : "time-outline"}
-                            size={14}
-                            color={deck.urgencyText}
-                          />
-                          <Text
-                            className="text-xs font-bold ml-1"
-                            style={{ color: deck.urgencyText }}
-                          >
-                            {deck.daysLeft === 0
-                              ? "TODAY"
-                              : deck.daysLeft === 1
-                              ? "TOMORROW"
-                              : `${deck.daysLeft}d left`}
-                          </Text>
-                        </View>
-                      )}
-
-                      {/* Deck Header */}
-                      <View className="flex-row items-center mb-3" style={{ paddingRight: deck.hasTest ? 80 : 0 }}>
-                        <View
-                          className="w-4 h-4 rounded-full mr-3"
-                          style={{ backgroundColor: deck.color }}
-                        />
-                        <Text className="font-bold text-xl flex-1" style={{ color: colors.text }}>
-                          {deck.name}
-                        </Text>
-                      </View>
-
-                      {/* Card Count */}
-                      <View className="flex-row items-center mb-3">
-                        <Ionicons name="file-tray-full-outline" size={18} color={colors.textSecondary} />
-                        <Text className="text-base ml-2" style={{ color: colors.textSecondary }}>
-                          {deck.cardCount} {deck.cardCount === 1 ? "card" : "cards"}
-                        </Text>
-                      </View>
-
-                      {/* Mastery Progress */}
-                      <View className="mb-3">
-                        <View className="flex-row justify-between mb-2">
-                          <Text className="text-sm font-medium" style={{ color: colors.textSecondary }}>
-                            Mastery Progress
-                          </Text>
-                          <Text className="text-sm font-bold" style={{ color: colors.text }}>
-                            {deck.masteredPct}%
-                          </Text>
-                        </View>
-                        <View className="h-2.5 rounded-full overflow-hidden" style={{ backgroundColor: colors.border }}>
-                          <View
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${deck.masteredPct}%`,
-                              backgroundColor: deck.masteredPct >= 80 ? "#10b981" : deck.masteredPct >= 50 ? colors.primary : "#f97316"
-                            }}
-                          />
-                        </View>
-                      </View>
-
-                      {/* Card Breakdown */}
-                      <View className="flex-row gap-2">
-                        <View className="flex-1 rounded-xl p-3" style={{ backgroundColor: colors.background }}>
-                          <View className="flex-row items-center mb-1">
-                            <View className="w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: "#10b981" }} />
-                            <Text className="text-xs" style={{ color: colors.textSecondary }}>
-                              Mastered
-                            </Text>
+                            {deck.hasTest && <Text style={[styles.testDateDays, { color: deck.urgencyText }]}>{deck.daysLeft === 0 ? "Today" : deck.daysLeft === 1 ? "Tomorrow" : `${deck.daysLeft} days`}</Text>}
                           </View>
-                          <Text className="text-lg font-bold" style={{ color: "#10b981" }}>
-                            {deck.masteredCount}
-                          </Text>
-                        </View>
-                        <View className="flex-1 rounded-xl p-3" style={{ backgroundColor: colors.background }}>
-                          <View className="flex-row items-center mb-1">
-                            <View className="w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: colors.primary }} />
-                            <Text className="text-xs" style={{ color: colors.textSecondary }}>
-                              Learning
-                            </Text>
-                          </View>
-                          <Text className="text-lg font-bold" style={{ color: colors.primary }}>
-                            {deck.learningCount}
-                          </Text>
-                        </View>
-                        <View className="flex-1 rounded-xl p-3" style={{ backgroundColor: colors.background }}>
-                          <View className="flex-row items-center mb-1">
-                            <View className="w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: "#f97316" }} />
-                            <Text className="text-xs" style={{ color: colors.textSecondary }}>
-                              Struggling
-                            </Text>
-                          </View>
-                          <Text className="text-lg font-bold" style={{ color: "#f97316" }}>
-                            {deck.strugglingCount}
-                          </Text>
-                        </View>
-                      </View>
-
-                      {/* Test Date Info */}
-                      {deck.testDate && (
-                        <View
-                          className="rounded-xl p-3 flex-row items-center justify-between mt-3"
-                          style={{ backgroundColor: deck.urgencyBg }}
-                        >
-                          <View className="flex-row items-center">
-                            <Ionicons name="calendar-outline" size={16} color={deck.urgencyText} />
-                            <Text className="text-sm font-medium ml-2" style={{ color: deck.urgencyText }}>
-                              Test: {format(new Date(deck.testDate), "MMM d, yyyy")}
-                            </Text>
-                          </View>
-                          {deck.hasTest && (
-                            <Text className="text-sm font-bold" style={{ color: deck.urgencyText }}>
-                              {deck.daysLeft === 0
-                                ? "Today"
-                                : deck.daysLeft === 1
-                                ? "Tomorrow"
-                                : `${deck.daysLeft} days`}
-                            </Text>
-                          )}
-                        </View>
-                      )}
+                        )}
+                      </GlassCard>
                     </Pressable>
                   ))}
                 </View>
               </>
             )}
-
-            <View className="h-8" />
+            <View style={{ height: 32 }} />
           </View>
         </ScrollView>
-      </View>
+      </SafeAreaView>
 
-      {/* Sort Menu */}
-      <SortMenu
-        visible={showSortMenu}
-        onClose={() => setShowSortMenu(false)}
-        options={[
-          { value: "testDate", label: "Test Date (Soonest First)" },
-          { value: "progress", label: "Progress (High to Low)" },
-          { value: "name", label: "Name (A-Z)" },
-        ]}
-        selectedValue={sortBy}
-        onSelect={(value) => setSortBy(value as DeckSortOption)}
-      />
+      <SortMenu visible={showSortMenu} onClose={() => setShowSortMenu(false)} options={[{ value: "testDate", label: "Test Date" }, { value: "progress", label: "Progress" }, { value: "name", label: "Name" }]} selectedValue={sortBy} onSelect={(v) => setSortBy(v as DeckSortOption)} />
 
-      {/* Create Deck Modal */}
-      <Modal
-        visible={showCreateModal}
-        animationType="slide"
-        presentationStyle="formSheet"
-        onRequestClose={() => setShowCreateModal(false)}
-      >
-        <SafeAreaView className="flex-1" style={{ backgroundColor: colors.surface }} edges={["top"]}>
-          <View className="flex-1">
-            <View className="flex-row items-center justify-between px-5 py-4 border-b" style={{ borderBottomColor: colors.border }}>
-              <Pressable onPress={() => setShowCreateModal(false)} className="active:opacity-70">
-                <Text className="text-lg" style={{ color: colors.primary }}>Cancel</Text>
-              </Pressable>
-              <Text className="text-xl font-bold" style={{ color: colors.text }}>New Deck</Text>
-              <Pressable onPress={handleCreateDeck} className="active:opacity-70">
-                <Text className="text-lg font-semibold" style={{ color: colors.primary }}>Create</Text>
-              </Pressable>
-            </View>
-
-            <View className="px-5 py-6">
-              <Text className="text-sm font-semibold mb-2" style={{ color: colors.textSecondary }}>
-                Deck Name
-              </Text>
-              <TextInput
-                value={newDeckName}
-                onChangeText={setNewDeckName}
-                placeholder="e.g., Biology Chapter 3"
-                className="border rounded-xl px-4 py-3.5 text-base mb-6"
-                style={{
-                  backgroundColor: colors.background,
-                  borderColor: colors.border,
-                  color: colors.text
-                }}
-                placeholderTextColor={colors.textSecondary}
-                autoFocus
-              />
-
-              <Text className="text-sm font-semibold mb-3" style={{ color: colors.textSecondary }}>
-                Study Mode
-              </Text>
-              <View className="flex-row gap-3 mb-6">
-                <Pressable
-                  onPress={() => setDeckMode("TEST_PREP")}
-                  className="flex-1 rounded-xl p-4 border-2 active:opacity-70"
-                  style={{
-                    backgroundColor: deckMode === "TEST_PREP" ? colors.primaryLight : colors.background,
-                    borderColor: deckMode === "TEST_PREP" ? colors.primary : colors.border,
-                  }}
-                >
-                  <View className="flex-row items-center justify-center mb-2">
-                    <Ionicons
-                      name="calendar"
-                      size={24}
-                      color={deckMode === "TEST_PREP" ? colors.primary : colors.textSecondary}
-                    />
-                  </View>
-                  <Text
-                    className="text-base font-bold text-center mb-1"
-                    style={{ color: deckMode === "TEST_PREP" ? colors.primary : colors.text }}
-                  >
-                    Test Prep
-                  </Text>
-                  <Text
-                    className="text-xs text-center leading-4"
-                    style={{ color: colors.textSecondary }}
-                  >
-                    Intensive review schedule based on test date. Final review day before exam.
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => setDeckMode("LONG_TERM")}
-                  className="flex-1 rounded-xl p-4 border-2 active:opacity-70"
-                  style={{
-                    backgroundColor: deckMode === "LONG_TERM" ? "#d1fae5" : colors.background,
-                    borderColor: deckMode === "LONG_TERM" ? "#10b981" : colors.border,
-                  }}
-                >
-                  <View className="flex-row items-center justify-center mb-2">
-                    <Ionicons
-                      name="repeat"
-                      size={24}
-                      color={deckMode === "LONG_TERM" ? "#10b981" : colors.textSecondary}
-                    />
-                  </View>
-                  <Text
-                    className="text-base font-bold text-center mb-1"
-                    style={{ color: deckMode === "LONG_TERM" ? "#10b981" : colors.text }}
-                  >
-                    Long-Term
-                  </Text>
-                  <Text
-                    className="text-xs text-center leading-4"
-                    style={{ color: colors.textSecondary }}
-                  >
-                    Scientific spaced repetition for permanent memory retention.
-                  </Text>
-                </Pressable>
-              </View>
-
-              {/* Mode Description */}
-              {deckMode === "TEST_PREP" && (
-                <View className="mb-6 p-4 rounded-xl" style={{ backgroundColor: "#dbeafe" }}>
-                  <View className="flex-row items-start mb-2">
-                    <Ionicons name="information-circle" size={18} color="#2563eb" style={{ marginRight: 6, marginTop: 2 }} />
-                    <Text className="text-sm font-semibold flex-1" style={{ color: "#2563eb" }}>
-                      Test Prep Mode
-                    </Text>
-                  </View>
-                  <Text className="text-xs leading-5" style={{ color: "#1e3a8a" }}>
-                    • Smart review schedule based on days until test{'\n'}
-                    • Tracks struggling cards with special attention{'\n'}
-                    • Final review day before exam{'\n'}
-                    • Emergency mode on test day{'\n'}
-                    • Converts to long-term mode after exam
-                  </Text>
-                </View>
-              )}
-
-              {deckMode === "LONG_TERM" && (
-                <View className="mb-6 p-4 rounded-xl" style={{ backgroundColor: "#d1fae5" }}>
-                  <View className="flex-row items-start mb-2">
-                    <Ionicons name="information-circle" size={18} color="#10b981" style={{ marginRight: 6, marginTop: 2 }} />
-                    <Text className="text-sm font-semibold flex-1" style={{ color: "#10b981" }}>
-                      Long-Term Mode
-                    </Text>
-                  </View>
-                  <Text className="text-xs leading-5" style={{ color: "#064e3b" }}>
-                    • Uses FSRS algorithm (scientifically proven){'\n'}
-                    • Adapts to your memory performance{'\n'}
-                    • Optimizes for 90% retention{'\n'}
-                    • Perfect for building permanent knowledge{'\n'}
-                    • No test date required
-                  </Text>
-                </View>
-              )}
-
-              <Text className="text-sm font-semibold mb-3" style={{ color: colors.textSecondary }}>
-                Deck Color
-              </Text>
-              <View className="flex-row flex-wrap gap-3 mb-6">
-                {DECK_COLORS.map((color) => (
-                  <Pressable
-                    key={color}
-                    onPress={() => setSelectedColor(color)}
-                    className="w-14 h-14 rounded-full items-center justify-center active:opacity-70"
-                    style={{
-                      backgroundColor: color,
-                      borderWidth: selectedColor === color ? 3 : 0,
-                      borderColor: colors.text,
-                    }}
-                  >
-                    {selectedColor === color && (
-                      <Ionicons name="checkmark" size={28} color="white" />
-                    )}
-                  </Pressable>
-                ))}
-              </View>
-
-              {deckMode === "TEST_PREP" && (
-                <>
-                  <Text className="text-sm font-semibold mb-2" style={{ color: colors.text }}>
-                    Test Date *
-                  </Text>
-                  <Text className="text-xs mb-3" style={{ color: colors.textSecondary }}>
-                    Enter a test date or your best guess to help schedule reviews
-                  </Text>
-                  <Pressable
-                    onPress={() => setShowDatePicker(true)}
-                    className="rounded-xl px-4 py-3.5 border flex-row items-center justify-between"
-                    style={{
-                      backgroundColor: colors.background,
-                      borderColor: colors.border
-                    }}
-                  >
-                    <Text style={{ color: testDate ? colors.text : colors.textSecondary }}>
-                      {testDate ? format(testDate, "MMM d, yyyy") : "Tap to set test date"}
-                    </Text>
-                    <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
-                  </Pressable>
-                </>
-              )}
-
-              {/* Date Picker Modal */}
-              {showDatePicker && Platform.OS === "ios" && (
-                <Modal
-                  visible={showDatePicker}
-                  animationType="slide"
-                  presentationStyle="formSheet"
-                  onRequestClose={() => setShowDatePicker(false)}
-                >
-                  <SafeAreaView className="flex-1" style={{ backgroundColor: colors.surface }} edges={["top"]}>
-                    <View className="flex-1">
-                      <View className="flex-row items-center justify-between px-5 py-4 border-b" style={{ borderBottomColor: colors.border }}>
-                        <Pressable onPress={() => setShowDatePicker(false)} className="active:opacity-70">
-                          <Text className="text-lg" style={{ color: colors.primary }}>Cancel</Text>
-                        </Pressable>
-                        <Text className="text-xl font-bold" style={{ color: colors.text }}>Select Test Date</Text>
-                        <Pressable onPress={() => setShowDatePicker(false)} className="active:opacity-70">
-                          <Text className="text-lg font-semibold" style={{ color: colors.primary }}>Done</Text>
-                        </Pressable>
-                      </View>
-                      <View className="flex-1 items-center justify-center">
-                        <DateTimePicker
-                          value={testDate || new Date()}
-                          mode="date"
-                          display="spinner"
-                          onChange={handleDateChange}
-                          minimumDate={new Date()}
-                        />
-                      </View>
-                    </View>
-                  </SafeAreaView>
-                </Modal>
-              )}
-
-              {showDatePicker && Platform.OS === "android" && (
-                <DateTimePicker
-                  value={testDate || new Date()}
-                  mode="date"
-                  display="default"
-                  onChange={handleDateChange}
-                  minimumDate={new Date()}
-                />
-              )}
-            </View>
+      {/* Create Modal */}
+      <Modal visible={showCreateModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowCreateModal(false)}>
+        <View style={[styles.modalContainer, { backgroundColor: isDark ? "#1e293b" : "#ffffff" }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: isDark ? "#334155" : "#e2e8f0" }]}>
+            <Pressable onPress={() => setShowCreateModal(false)}><Text style={{ color: "#667eea", fontSize: 17 }}>Cancel</Text></Pressable>
+            <Text style={[styles.modalTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>New Deck</Text>
+            <Pressable onPress={handleCreateDeck}><Text style={{ color: "#667eea", fontSize: 17, fontWeight: "600" }}>Create</Text></Pressable>
           </View>
-        </SafeAreaView>
+          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+            <Text style={[styles.inputLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>Deck Name</Text>
+            <TextInput value={newDeckName} onChangeText={setNewDeckName} placeholder="e.g., Biology Chapter 3" placeholderTextColor={isDark ? "#64748b" : "#94a3b8"} style={[styles.input, { backgroundColor: isDark ? "#0f172a" : "#f8fafc", borderColor: isDark ? "#334155" : "#e2e8f0", color: isDark ? "#f1f5f9" : "#1e293b" }]} autoFocus />
+
+            <Text style={[styles.inputLabel, { color: isDark ? "#94a3b8" : "#64748b", marginTop: 20 }]}>Study Mode</Text>
+            <View style={styles.modeRow}>
+              <Pressable onPress={() => setDeckMode("TEST_PREP")} style={[styles.modeOption, { backgroundColor: deckMode === "TEST_PREP" ? (isDark ? "rgba(102,126,234,0.2)" : "#eef2ff") : (isDark ? "#0f172a" : "#f8fafc"), borderColor: deckMode === "TEST_PREP" ? "#667eea" : (isDark ? "#334155" : "#e2e8f0") }]}>
+                <Ionicons name="calendar" size={24} color={deckMode === "TEST_PREP" ? "#667eea" : (isDark ? "#64748b" : "#94a3b8")} />
+                <Text style={[styles.modeTitle, { color: deckMode === "TEST_PREP" ? "#667eea" : (isDark ? "#f1f5f9" : "#1e293b") }]}>Test Prep</Text>
+                <Text style={[styles.modeDesc, { color: isDark ? "#64748b" : "#94a3b8" }]}>Schedule based on test date</Text>
+              </Pressable>
+              <Pressable onPress={() => setDeckMode("LONG_TERM")} style={[styles.modeOption, { backgroundColor: deckMode === "LONG_TERM" ? (isDark ? "rgba(16,185,129,0.2)" : "#d1fae5") : (isDark ? "#0f172a" : "#f8fafc"), borderColor: deckMode === "LONG_TERM" ? "#10b981" : (isDark ? "#334155" : "#e2e8f0") }]}>
+                <Ionicons name="repeat" size={24} color={deckMode === "LONG_TERM" ? "#10b981" : (isDark ? "#64748b" : "#94a3b8")} />
+                <Text style={[styles.modeTitle, { color: deckMode === "LONG_TERM" ? "#10b981" : (isDark ? "#f1f5f9" : "#1e293b") }]}>Long-Term</Text>
+                <Text style={[styles.modeDesc, { color: isDark ? "#64748b" : "#94a3b8" }]}>Spaced repetition forever</Text>
+              </Pressable>
+            </View>
+
+            <Text style={[styles.inputLabel, { color: isDark ? "#94a3b8" : "#64748b", marginTop: 20 }]}>Color</Text>
+            <View style={styles.colorRow}>
+              {DECK_COLORS.map((c) => (
+                <Pressable key={c} onPress={() => setSelectedColor(c)} style={[styles.colorOption, { backgroundColor: c, borderWidth: selectedColor === c ? 3 : 0, borderColor: isDark ? "#f1f5f9" : "#1e293b" }]}>
+                  {selectedColor === c && <Ionicons name="checkmark" size={24} color="#fff" />}
+                </Pressable>
+              ))}
+            </View>
+
+            {deckMode === "TEST_PREP" && (
+              <>
+                <Text style={[styles.inputLabel, { color: isDark ? "#94a3b8" : "#64748b", marginTop: 20 }]}>Test Date *</Text>
+                <Pressable 
+                  onPress={openDatePicker} 
+                  style={[styles.dateButton, { backgroundColor: isDark ? "#0f172a" : "#f8fafc", borderColor: testDate ? (isDark ? "#334155" : "#e2e8f0") : "#ef4444" }]}
+                >
+                  <Text style={{ color: testDate ? (isDark ? "#f1f5f9" : "#1e293b") : (isDark ? "#64748b" : "#94a3b8"), fontSize: 16 }}>{testDate ? format(testDate, "MMM d, yyyy") : "Select test date"}</Text>
+                  <Ionicons name="calendar-outline" size={20} color={isDark ? "#64748b" : "#94a3b8"} />
+                </Pressable>
+              </>
+            )}
+            <View style={{ height: 40 }} />
+          </ScrollView>
+
+          {/* Date Picker Overlay - iOS only - Renders inside Create Modal */}
+          {Platform.OS === 'ios' && showDatePicker && (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "#1e293b" : "#ffffff", zIndex: 100 }]}>
+              <View style={[styles.datePickerHeader, { borderBottomColor: isDark ? "#334155" : "#e2e8f0" }]}>
+                <Pressable onPress={handleDateCancel} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Text style={styles.datePickerButton}>Cancel</Text>
+                </Pressable>
+                <Text style={[styles.datePickerTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Test Date</Text>
+                <Pressable onPress={handleDateConfirm} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Text style={[styles.datePickerButton, { fontWeight: "600" }]}>Done</Text>
+                </Pressable>
+              </View>
+              <View style={styles.datePickerContainer}>
+                <DateTimePicker 
+                  value={pickerDate} 
+                  mode="date" 
+                  display="spinner" 
+                  onChange={handleDateChange} 
+                  minimumDate={new Date()} 
+                  themeVariant={isDark ? "dark" : "light"}
+                  textColor={isDark ? "#f1f5f9" : "#1e293b"}
+                  style={{ width: '100%', height: 300 }}
+                />
+              </View>
+            </View>
+          )}
+        </View>
       </Modal>
 
-      {/* Date Picker Modal */}
-      {showDatePicker && Platform.OS === "ios" && (
-        <Modal
-          visible={showDatePicker}
-          animationType="slide"
-          presentationStyle="formSheet"
-          onRequestClose={() => setShowDatePicker(false)}
-        >
-          <SafeAreaView className="flex-1" style={{ backgroundColor: colors.surface }} edges={["top"]}>
-            <View className="flex-1">
-              <View className="flex-row items-center justify-between px-5 py-4 border-b" style={{ borderBottomColor: colors.border }}>
-                <Pressable onPress={() => setShowDatePicker(false)} className="active:opacity-70">
-                  <Text className="text-lg" style={{ color: colors.primary }}>Cancel</Text>
-                </Pressable>
-                <Text className="text-xl font-bold" style={{ color: colors.text }}>Select Test Date</Text>
-                <Pressable onPress={() => setShowDatePicker(false)} className="active:opacity-70">
-                  <Text className="text-lg font-semibold" style={{ color: colors.primary }}>Done</Text>
-                </Pressable>
-              </View>
-              <View className="flex-1 items-center justify-center">
-                <DateTimePicker
-                  value={testDate || new Date()}
-                  mode="date"
-                  display="spinner"
-                  onChange={handleDateChange}
-                  minimumDate={new Date()}
-                />
-              </View>
-            </View>
-          </SafeAreaView>
-        </Modal>
-      )}
-
-      {showDatePicker && Platform.OS === "android" && (
-        <DateTimePicker
-          value={testDate || new Date()}
-          mode="date"
+      {/* Android Date Picker */}
+      {showDatePicker && Platform.OS === 'android' && (
+        <DateTimePicker 
+          value={pickerDate} 
+          mode="date" 
           display="default"
-          onChange={handleDateChange}
+          onChange={handleDateChange} 
           minimumDate={new Date()}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  safeArea: { flex: 1 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
+  headerTitle: { fontSize: 34, fontWeight: "800", letterSpacing: -0.5 },
+  addButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  tabContainer: { paddingHorizontal: 20, marginBottom: 8 },
+  tabRow: { flexDirection: "row" },
+  tab: { flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: "center", overflow: "hidden" },
+  tabActive: { overflow: "hidden" },
+  tabActiveLongTerm: { overflow: "hidden" },
+  tabText: { fontSize: 14, fontWeight: "600" },
+  scrollView: { flex: 1 },
+  content: { paddingHorizontal: 20, paddingTop: 8 },
+  emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 80 },
+  emptyTitle: { fontSize: 20, fontWeight: "700", marginTop: 16, marginBottom: 8 },
+  emptySubtitle: { fontSize: 15, textAlign: "center" },
+  sortButton: { marginBottom: 16 },
+  sortButtonContent: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sortButtonLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  sortButtonText: { fontSize: 14 },
+  sortButtonValue: { fontWeight: "600" },
+  decksList: { gap: 16 },
+  deckCard: { marginBottom: 0 },
+  urgencyBadge: { position: "absolute", top: 16, right: 16, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, gap: 4, zIndex: 1 },
+  urgencyText: { fontSize: 11, fontWeight: "700" },
+  deckHeader: { flexDirection: "row", alignItems: "center", marginBottom: 8, paddingRight: 80 },
+  deckDot: { width: 12, height: 12, borderRadius: 6, marginRight: 10 },
+  deckName: { fontSize: 18, fontWeight: "700", flex: 1 },
+  cardCountRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 12 },
+  cardCountText: { fontSize: 14 },
+  progressSection: { marginBottom: 14 },
+  progressHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
+  progressLabel: { fontSize: 13, fontWeight: "500" },
+  progressValue: { fontSize: 13, fontWeight: "700" },
+  progressBar: { height: 6, borderRadius: 3, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 3 },
+  statsRow: { flexDirection: "row", gap: 8 },
+  statItem: { flex: 1, padding: 10, borderRadius: 12, alignItems: "center" },
+  statDot: { width: 6, height: 6, borderRadius: 3, marginBottom: 4 },
+  statLabel: { fontSize: 10, marginBottom: 2 },
+  statValue: { fontSize: 16, fontWeight: "700" },
+  testDateRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, borderRadius: 12, marginTop: 12 },
+  testDateLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
+  testDateText: { fontSize: 13, fontWeight: "500" },
+  testDateDays: { fontSize: 13, fontWeight: "700" },
+  floatingShape: { position: "absolute", borderRadius: 100, opacity: 0.12 },
+  shape1: { width: 180, height: 180, top: -60, right: -40 },
+  shape2: { width: 120, height: 120, bottom: 200, left: -40 },
+  modalContainer: { flex: 1 },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
+  modalTitle: { fontSize: 18, fontWeight: "700" },
+  modalContent: { padding: 20 },
+  inputLabel: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
+  input: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16 },
+  modeRow: { flexDirection: "row", gap: 12 },
+  modeOption: { flex: 1, padding: 16, borderRadius: 16, borderWidth: 2, alignItems: "center" },
+  modeTitle: { fontSize: 15, fontWeight: "700", marginTop: 8, marginBottom: 4 },
+  modeDesc: { fontSize: 11, textAlign: "center" },
+  colorRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  colorOption: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  dateButton: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  datePickerHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
+  datePickerTitle: { fontSize: 17, fontWeight: "600" },
+  datePickerButton: { color: "#667eea", fontSize: 17 },
+  datePickerContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 20 },
+});

@@ -1,471 +1,312 @@
-import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable } from "react-native";
+import React, { useState, useCallback } from "react";
+import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { format, subDays, startOfWeek, differenceInDays } from "date-fns";
 import { useTheme } from "../utils/useTheme";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { MainTabsParamList } from "../navigation/RootNavigator";
 import { CompositeNavigationProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
+import { GlassCard } from "../components/ui";
 
-type NavigationProp = CompositeNavigationProp<
-  BottomTabNavigationProp<MainTabsParamList, "Progress">,
-  NativeStackNavigationProp<RootStackParamList>
->;
+type NavigationProp = CompositeNavigationProp<BottomTabNavigationProp<MainTabsParamList, "Progress">, NativeStackNavigationProp<RootStackParamList>>;
 type TestFilter = "all" | "upcoming" | "finished";
 
 export default function ProgressScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const flashcards = useFlashcardStore((s) => s.flashcards);
   const decks = useFlashcardStore((s) => s.decks);
-
+  const syncWithSupabase = useFlashcardStore((s) => s.syncWithSupabase);
   const [testFilter, setTestFilter] = useState<TestFilter>("upcoming");
-  const [showAllDecks, setShowAllDecks] = useState(false);
 
-  // Calculate cards reviewed this week
+  // Sync data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      syncWithSupabase();
+    }, [syncWithSupabase])
+  );
+
   const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-  const cardsThisWeek = flashcards.filter((card) => {
-    if (!card.lastReviewed) return false;
-    const reviewDate = new Date(card.lastReviewed);
-    return reviewDate >= weekStart;
-  }).length;
+  const cardsThisWeek = flashcards.filter((card) => card.last_review && new Date(card.last_review) >= weekStart).length;
 
-  // Generate week days data for chart
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const date = subDays(new Date(), 6 - i);
-    const dayCards = flashcards.filter((card) => {
-      if (!card.lastReviewed) return false;
-      const reviewDate = new Date(card.lastReviewed);
-      return reviewDate.toDateString() === date.toDateString();
-    }).length;
-
-    return {
-      date,
-      count: dayCards,
-      label: format(date, "EEE").substring(0, 3),
-    };
+    const dayCards = flashcards.filter((card) => card.last_review && new Date(card.last_review).toDateString() === date.toDateString()).length;
+    return { date, count: dayCards, label: format(date, "EEE").substring(0, 3) };
   });
 
   const maxDayCards = Math.max(...weekDays.map((d) => d.count), 1);
   const avgDaily = cardsThisWeek > 0 ? Math.round(cardsThisWeek / 7) : 0;
 
-  // Categorize cards by mastery level
-  const categorizedCards = flashcards.reduce(
-    (acc, card) => {
-      // Use the mastery field from the card
-      if (card.mastery === "STRUGGLING") {
-        acc.struggling.push(card);
-      } else if (card.mastery === "MASTERED") {
-        acc.mastered.push(card);
-      } else {
-        acc.learning.push(card);
-      }
-      return acc;
-    },
-    { mastered: [] as typeof flashcards, learning: [] as typeof flashcards, struggling: [] as typeof flashcards }
-  );
+  const categorizedCards = flashcards.reduce((acc, card) => {
+    if (card.mastery === "STRUGGLING") acc.struggling.push(card);
+    else if (card.mastery === "MASTERED") acc.mastered.push(card);
+    else acc.learning.push(card);
+    return acc;
+  }, { mastered: [] as typeof flashcards, learning: [] as typeof flashcards, struggling: [] as typeof flashcards });
 
   const totalCards = flashcards.length;
-  const masteredPercentage = totalCards > 0
-    ? Math.round((categorizedCards.mastered.length / totalCards) * 100)
-    : 0;
-  const learningPercentage = totalCards > 0
-    ? Math.round((categorizedCards.learning.length / totalCards) * 100)
-    : 0;
-  const strugglingPercentage = totalCards > 0
-    ? Math.round((categorizedCards.struggling.length / totalCards) * 100)
-    : 0;
+  const masteredPercentage = totalCards > 0 ? Math.round((categorizedCards.mastered.length / totalCards) * 100) : 0;
+  const learningPercentage = totalCards > 0 ? Math.round((categorizedCards.learning.length / totalCards) * 100) : 0;
+  const strugglingPercentage = totalCards > 0 ? Math.round((categorizedCards.struggling.length / totalCards) * 100) : 0;
 
-  // Get all tests with details
-  const allTestsWithDetails = decks
-    .filter((d) => d.testDate)
-    .map((deck) => {
-      const deckCards = flashcards.filter((card) => card.deckId === deck.id);
+  const allTestsWithDetails = decks.filter((d) => d.testDate).map((deck) => {
+    const deckCards = flashcards.filter((card) => card.deckId === deck.id);
+    const masteredCount = deckCards.filter((c) => c.mastery === "MASTERED").length;
+    const readyPercentage = deckCards.length > 0 ? Math.round((masteredCount / deckCards.length) * 100) : 0;
+    const daysLeft = differenceInDays(new Date(deck.testDate!), new Date());
+    const isPast = new Date(deck.testDate!) < new Date();
+    return { ...deck, readyPercentage, daysLeft, cardCount: deckCards.length, isPast };
+  });
 
-      const masteredCount = deckCards.filter(
-        (c) => c.mastery === "MASTERED"
-      ).length;
-      const readyPercentage = deckCards.length > 0
-        ? Math.round((masteredCount / deckCards.length) * 100)
-        : 0;
+  const filteredTests = allTestsWithDetails.filter((test) => {
+    if (testFilter === "upcoming") return !test.isPast;
+    if (testFilter === "finished") return test.isPast;
+    return true;
+  }).sort((a, b) => testFilter === "finished" ? new Date(b.testDate!).getTime() - new Date(a.testDate!).getTime() : a.daysLeft - b.daysLeft);
 
-      const daysLeft = differenceInDays(new Date(deck.testDate!), new Date());
-      const isPast = new Date(deck.testDate!) < new Date();
-
-      return {
-        ...deck,
-        readyPercentage,
-        daysLeft,
-        cardCount: deckCards.length,
-        isPast,
-      };
-    });
-
-  // Filter tests based on selected filter
-  const filteredTests = allTestsWithDetails
-    .filter((test) => {
-      if (testFilter === "upcoming") {
-        return !test.isPast;
-      } else if (testFilter === "finished") {
-        return test.isPast;
-      }
-      return true; // "all"
-    })
-    .sort((a, b) => {
-      if (testFilter === "finished") {
-        // Sort finished tests by most recent first
-        return new Date(b.testDate!).getTime() - new Date(a.testDate!).getTime();
-      }
-      // Sort upcoming tests by soonest first
-      return a.daysLeft - b.daysLeft;
-    });
-
-  // Get top 3 upcoming tests for home screen compatibility
-  const upcomingTests = filteredTests.filter((t) => !t.isPast).slice(0, 3);
-
-  // Deck stats
   const deckStats = decks.map((deck) => {
     const deckCards = flashcards.filter((card) => card.deckId === deck.id);
-
-    const masteredCount = deckCards.filter(
-      (c) => c.mastery === "MASTERED"
-    ).length;
-    const masteredPct = deckCards.length > 0
-      ? Math.round((masteredCount / deckCards.length) * 100)
-      : 0;
-
+    const masteredCount = deckCards.filter((c) => c.mastery === "MASTERED").length;
+    const masteredPct = deckCards.length > 0 ? Math.round((masteredCount / deckCards.length) * 100) : 0;
     const hasTest = deck.testDate && new Date(deck.testDate) > new Date();
-    const nextTest = hasTest
-      ? {
-          date: deck.testDate!,
-          daysLeft: differenceInDays(new Date(deck.testDate!), new Date()),
-        }
-      : null;
-
-    return {
-      ...deck,
-      cardCount: deckCards.length,
-      masteredPct,
-      nextTest,
-    };
+    const nextTest = hasTest ? { date: deck.testDate!, daysLeft: differenceInDays(new Date(deck.testDate!), new Date()) } : null;
+    return { ...deck, cardCount: deckCards.length, masteredPct, nextTest };
   });
 
   return (
-    <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }} edges={["top"]}>
-      <View className="flex-1">
-        <View className="px-6 pt-6 pb-4" style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-          <Text className="text-3xl font-bold" style={{ color: colors.text }}>Progress</Text>
+    <View style={styles.container}>
+      <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+      <View style={[styles.floatingShape, styles.shape1, { backgroundColor: isDark ? "#667eea" : "#a5b4fc" }]} />
+      <View style={[styles.floatingShape, styles.shape2, { backgroundColor: isDark ? "#f093fb" : "#c4b5fd" }]} />
+      <View style={[styles.floatingShape, styles.shape3, { backgroundColor: isDark ? "#4facfe" : "#93c5fd" }]} />
+
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
+        <View style={styles.header}>
+          <Text style={[styles.headerTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Progress</Text>
         </View>
 
-        <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-          <View className="px-6 py-6">
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <View style={styles.content}>
             {/* This Week Stats */}
-            <View className="rounded-3xl p-5 mb-4" style={{ backgroundColor: colors.surface }}>
-              <Text className="text-xl font-bold mb-4" style={{ color: colors.text }}>
-                This Week
-              </Text>
-              <View className="gap-3">
-                <View className="flex-row justify-between">
-                  <Text className="text-base" style={{ color: colors.textSecondary }}>Cards Reviewed</Text>
-                  <Text className="font-bold text-xl" style={{ color: colors.text }}>{cardsThisWeek}</Text>
+            <GlassCard style={styles.card}>
+              <Text style={[styles.cardTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>This Week</Text>
+              <View style={styles.weekStats}>
+                <View style={styles.weekStatItem}>
+                  <Text style={[styles.weekStatLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>Cards Reviewed</Text>
+                  <Text style={[styles.weekStatValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{cardsThisWeek}</Text>
                 </View>
-                <View className="flex-row justify-between">
-                  <Text className="text-base" style={{ color: colors.textSecondary }}>Daily Average</Text>
-                  <Text className="font-bold text-xl" style={{ color: colors.text }}>{avgDaily}</Text>
+                <View style={styles.weekStatItem}>
+                  <Text style={[styles.weekStatLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>Daily Average</Text>
+                  <Text style={[styles.weekStatValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{avgDaily}</Text>
                 </View>
               </View>
-            </View>
+            </GlassCard>
 
             {/* Overall Mastery */}
-            <View className="rounded-3xl p-5 mb-4" style={{ backgroundColor: colors.surface }}>
-              <Text className="text-xl font-bold mb-2" style={{ color: colors.text }}>
-                Overall Mastery
-              </Text>
-              <Text className="text-sm mb-5" style={{ color: colors.textSecondary }}>Total Cards: {totalCards}</Text>
+            <GlassCard style={styles.card}>
+              <Text style={[styles.cardTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Overall Mastery</Text>
+              <Text style={[styles.cardSubtitle, { color: isDark ? "#64748b" : "#94a3b8" }]}>Total Cards: {totalCards}</Text>
 
-              <View className="gap-4">
-                <View>
-                  <View className="flex-row justify-between mb-2">
-                    <Text className="font-semibold" style={{ color: "#10b981" }}>
-                      Mastered
-                    </Text>
-                    <Text className="font-bold" style={{ color: colors.text }}>
-                      {categorizedCards.mastered.length} ({masteredPercentage}%)
-                    </Text>
+              <View style={styles.masterySection}>
+                <View style={styles.masteryItem}>
+                  <View style={styles.masteryHeader}>
+                    <Text style={[styles.masteryLabel, { color: "#10b981" }]}>Mastered</Text>
+                    <Text style={[styles.masteryValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{categorizedCards.mastered.length} ({masteredPercentage}%)</Text>
                   </View>
-                  <View className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: colors.border }}>
-                    <View
-                      className="h-full rounded-full"
-                      style={{ width: `${masteredPercentage}%`, backgroundColor: "#10b981" }}
-                    />
+                  <View style={[styles.progressBar, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>
+                    <View style={[styles.progressFill, { width: `${masteredPercentage}%`, backgroundColor: "#10b981" }]} />
                   </View>
                 </View>
 
-                <View>
-                  <View className="flex-row justify-between mb-2">
-                    <Text className="font-semibold" style={{ color: colors.primary }}>
-                      Learning
-                    </Text>
-                    <Text className="font-bold" style={{ color: colors.text }}>
-                      {categorizedCards.learning.length} ({learningPercentage}%)
-                    </Text>
+                <View style={styles.masteryItem}>
+                  <View style={styles.masteryHeader}>
+                    <Text style={[styles.masteryLabel, { color: "#667eea" }]}>Learning</Text>
+                    <Text style={[styles.masteryValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{categorizedCards.learning.length} ({learningPercentage}%)</Text>
                   </View>
-                  <View className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: colors.border }}>
-                    <View
-                      className="h-full rounded-full"
-                      style={{ width: `${learningPercentage}%`, backgroundColor: colors.primary }}
-                    />
+                  <View style={[styles.progressBar, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>
+                    <View style={[styles.progressFill, { width: `${learningPercentage}%`, backgroundColor: "#667eea" }]} />
                   </View>
                 </View>
 
-                <View>
-                  <View className="flex-row justify-between mb-2">
-                    <Text className="font-semibold" style={{ color: "#f97316" }}>
-                      Struggling
-                    </Text>
-                    <Text className="font-bold" style={{ color: colors.text }}>
-                      {categorizedCards.struggling.length} ({strugglingPercentage}%)
-                    </Text>
+                <View style={styles.masteryItem}>
+                  <View style={styles.masteryHeader}>
+                    <Text style={[styles.masteryLabel, { color: "#f97316" }]}>Struggling</Text>
+                    <Text style={[styles.masteryValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{categorizedCards.struggling.length} ({strugglingPercentage}%)</Text>
                   </View>
-                  <View className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: colors.border }}>
-                    <View
-                      className="h-full rounded-full"
-                      style={{ width: `${strugglingPercentage}%`, backgroundColor: "#f97316" }}
-                    />
+                  <View style={[styles.progressBar, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>
+                    <View style={[styles.progressFill, { width: `${strugglingPercentage}%`, backgroundColor: "#f97316" }]} />
                   </View>
                 </View>
               </View>
-            </View>
+            </GlassCard>
 
             {/* Your Decks */}
             {deckStats.length > 0 && (
-              <View className="rounded-3xl p-5 mb-4" style={{ backgroundColor: colors.surface }}>
-                <View className="flex-row items-center justify-between mb-4">
-                  <Text className="text-xl font-bold" style={{ color: colors.text }}>
-                    Your Decks
-                  </Text>
+              <GlassCard style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <Text style={[styles.cardTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Your Decks</Text>
                   {deckStats.length > 3 && (
-                    <Pressable onPress={() => navigation.navigate("Decks")} className="active:opacity-70">
-                      <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-                        See All ({deckStats.length})
-                      </Text>
+                    <Pressable onPress={() => navigation.navigate("Decks")}>
+                      <Text style={{ color: "#667eea", fontSize: 14, fontWeight: "600" }}>See All ({deckStats.length})</Text>
                     </Pressable>
                   )}
                 </View>
-              <View className="gap-4">
-                {deckStats.slice(0, 3).map((deck, index, array) => (
-                  <Pressable
-                    key={deck.id}
-                    onPress={() => navigation.navigate("Deck", { deckId: deck.id })}
-                    className="pb-4 active:opacity-70"
-                    style={{ borderBottomWidth: index === array.length - 1 ? 0 : 1, borderBottomColor: colors.border }}
-                  >
-                    <View className="flex-row items-center mb-2">
-                      <View
-                        className="w-3 h-3 rounded-full mr-2"
-                        style={{ backgroundColor: deck.color }}
-                      />
-                      <Text className="font-bold text-base" style={{ color: colors.text }}>
-                        {deck.name}
-                      </Text>
-                    </View>
-                    <Text className="text-sm mb-1" style={{ color: colors.textSecondary }}>
-                      {deck.cardCount} cards • {deck.masteredPct}% mastered
-                    </Text>
-                    {deck.nextTest && (
-                      <Text className="text-sm font-medium" style={{ color: colors.primary }}>
-                        Next test: {format(new Date(deck.nextTest.date), "MMM d")} ({deck.nextTest.daysLeft} days)
-                      </Text>
-                    )}
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* Review Activity Chart */}
-          <View className="rounded-3xl p-5 mb-4" style={{ backgroundColor: colors.surface }}>
-            <Text className="text-xl font-bold mb-2" style={{ color: colors.text }}>
-              Review Activity
-            </Text>
-            <Text className="text-sm mb-6" style={{ color: colors.textSecondary }}>Last 7 Days</Text>
-            <View className="flex-row items-end justify-between" style={{ height: 180 }}>
-              {weekDays.map((day, index) => {
-                const barHeight = day.count > 0
-                  ? Math.max((day.count / maxDayCards) * 140, 20)
-                  : 8;
-                const isToday = day.date.toDateString() === new Date().toDateString();
-
-                return (
-                  <View key={index} className="flex-1 items-center">
-                    <View className="flex-1 justify-end mb-2">
-                      {day.count > 0 && (
-                        <Text className="text-xs mb-1 text-center font-semibold" style={{ color: colors.textSecondary }}>
-                          {day.count}
-                        </Text>
-                      )}
-                      <View
-                        className="rounded-lg mx-1"
-                        style={{
-                          backgroundColor: isToday ? colors.primary : colors.primaryLight,
-                          height: barHeight,
-                          width: 28,
-                        }}
-                      />
-                    </View>
-                    <Text className="text-xs mt-2" style={{ color: isToday ? colors.primary : colors.textSecondary, fontWeight: isToday ? "bold" : "normal" }}>
-                      {day.label}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Tests Section */}
-          {allTestsWithDetails.length > 0 && (
-            <View className="rounded-3xl p-5 mb-4" style={{ backgroundColor: colors.surface }}>
-              <Text className="text-xl font-bold mb-4" style={{ color: colors.text }}>
-                Tests
-              </Text>
-
-              {/* Filter Tabs */}
-              <View className="flex-row rounded-2xl p-1 mb-4" style={{ backgroundColor: colors.border }}>
-                <Pressable
-                  onPress={() => setTestFilter("upcoming")}
-                  className="flex-1 py-2 rounded-xl"
-                  style={{ backgroundColor: testFilter === "upcoming" ? colors.surface : "transparent" }}
-                >
-                  <Text
-                    className="text-center font-semibold"
-                    style={{ color: testFilter === "upcoming" ? colors.primary : colors.textSecondary }}
-                  >
-                    Upcoming
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setTestFilter("finished")}
-                  className="flex-1 py-2 rounded-xl"
-                  style={{ backgroundColor: testFilter === "finished" ? colors.surface : "transparent" }}
-                >
-                  <Text
-                    className="text-center font-semibold"
-                    style={{ color: testFilter === "finished" ? colors.primary : colors.textSecondary }}
-                  >
-                    Finished
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setTestFilter("all")}
-                  className="flex-1 py-2 rounded-xl"
-                  style={{ backgroundColor: testFilter === "all" ? colors.surface : "transparent" }}
-                >
-                  <Text
-                    className="text-center font-semibold"
-                    style={{ color: testFilter === "all" ? colors.primary : colors.textSecondary }}
-                  >
-                    All
-                  </Text>
-                </Pressable>
-              </View>
-
-              {/* Tests List */}
-              {filteredTests.length === 0 ? (
-                <View className="py-8">
-                  <Text className="text-center" style={{ color: colors.textSecondary }}>
-                    {testFilter === "upcoming" && "No upcoming tests"}
-                    {testFilter === "finished" && "No finished tests"}
-                    {testFilter === "all" && "No tests"}
-                  </Text>
-                </View>
-              ) : (
-                <View className="gap-3">
-                  {filteredTests.map((test) => (
-                    <View
-                      key={test.id}
-                      className="rounded-2xl p-4"
-                      style={{ borderWidth: 1, borderColor: colors.border }}
-                    >
-                      <View className="flex-row items-center justify-between mb-2">
-                        <View className="flex-1">
-                          <View className="flex-row items-center mb-1">
-                            <View
-                              className="w-2 h-2 rounded-full mr-2"
-                              style={{ backgroundColor: test.color }}
-                            />
-                            <Text className="font-bold text-base" style={{ color: colors.text }}>
-                              {test.name}
-                            </Text>
-                          </View>
-                          <Text className="text-xs" style={{ color: colors.textSecondary }}>
-                            {test.cardCount} cards
-                          </Text>
-                        </View>
-                        <View
-                          className="px-3 py-1.5 rounded-full"
-                          style={{
-                            backgroundColor: test.readyPercentage >= 80
-                              ? "#d1fae5"
-                              : test.readyPercentage >= 60
-                              ? "#fef3c7"
-                              : "#fee2e2"
-                          }}
-                        >
-                          <Text
-                            className="text-sm font-bold"
-                            style={{
-                              color: test.readyPercentage >= 80
-                                ? "#065f46"
-                                : test.readyPercentage >= 60
-                                ? "#92400e"
-                                : "#991b1b"
-                            }}
-                          >
-                            {test.readyPercentage}%
-                          </Text>
-                        </View>
+                <View style={styles.decksList}>
+                  {deckStats.slice(0, 3).map((deck, index, array) => (
+                    <Pressable key={deck.id} onPress={() => navigation.navigate("Deck", { deckId: deck.id })} style={[styles.deckItem, index !== array.length - 1 && { borderBottomWidth: 1, borderBottomColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]}>
+                      <View style={styles.deckItemHeader}>
+                        <View style={[styles.deckDot, { backgroundColor: deck.color }]} />
+                        <Text style={[styles.deckName, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{deck.name}</Text>
                       </View>
-                      <View className="flex-row items-center justify-between pt-2" style={{ borderTopWidth: 1, borderTopColor: colors.border }}>
-                        <Text className="text-sm" style={{ color: colors.textSecondary }}>
-                          {format(new Date(test.testDate!), "MMM d, yyyy")}
-                        </Text>
-                        {test.isPast ? (
-                          <Text className="font-medium text-sm" style={{ color: colors.textSecondary }}>
-                            Finished
-                          </Text>
-                        ) : (
-                          <Text className="font-semibold text-sm" style={{ color: colors.primary }}>
-                            {test.daysLeft === 0
-                              ? "Today"
-                              : test.daysLeft === 1
-                              ? "Tomorrow"
-                              : `${test.daysLeft} days left`}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
+                      <Text style={[styles.deckStats, { color: isDark ? "#64748b" : "#94a3b8" }]}>{deck.cardCount} cards • {deck.masteredPct}% mastered</Text>
+                      {deck.nextTest && <Text style={{ color: "#667eea", fontSize: 13, fontWeight: "500", marginTop: 2 }}>Next test: {format(new Date(deck.nextTest.date), "MMM d")} ({deck.nextTest.daysLeft}d)</Text>}
+                    </Pressable>
                   ))}
                 </View>
-              )}
-            </View>
-          )}
+              </GlassCard>
+            )}
 
-          {/* Upcoming Tests - Keep the old section for compatibility but it will be empty */}
-          {upcomingTests.length > 0 && testFilter === "upcoming" && (
-            <View style={{ display: "none" }}>
-              {/* Hidden to prevent duplication */}
-            </View>
-          )}
+            {/* Review Activity */}
+            <GlassCard style={styles.card}>
+              <Text style={[styles.cardTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Review Activity</Text>
+              <Text style={[styles.cardSubtitle, { color: isDark ? "#64748b" : "#94a3b8" }]}>Last 7 Days</Text>
+              <View style={styles.chartContainer}>
+                {weekDays.map((day, index) => {
+                  const barHeight = day.count > 0 ? Math.max((day.count / maxDayCards) * 120, 16) : 6;
+                  const isToday = day.date.toDateString() === new Date().toDateString();
+                  return (
+                    <View key={index} style={styles.chartBar}>
+                      <View style={styles.chartBarInner}>
+                        {day.count > 0 && <Text style={[styles.chartCount, { color: isDark ? "#94a3b8" : "#64748b" }]}>{day.count}</Text>}
+                        <View style={[styles.bar, { height: barHeight, backgroundColor: isToday ? "#667eea" : (isDark ? "rgba(102,126,234,0.3)" : "#c7d2fe") }]} />
+                      </View>
+                      <Text style={[styles.chartLabel, { color: isToday ? "#667eea" : (isDark ? "#64748b" : "#94a3b8"), fontWeight: isToday ? "700" : "400" }]}>{day.label}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </GlassCard>
 
-            <View className="h-8" />
+            {/* Tests */}
+            {allTestsWithDetails.length > 0 && (
+              <GlassCard style={styles.card}>
+                <Text style={[styles.cardTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Tests</Text>
+                
+                <GlassCard padding={4} borderRadius={14} style={styles.filterContainer}>
+                  <View style={styles.filterRow}>
+                    {(["upcoming", "finished", "all"] as TestFilter[]).map((filter) => (
+                      <Pressable key={filter} onPress={() => setTestFilter(filter)} style={[styles.filterTab, testFilter === filter && styles.filterTabActive]}>
+                        {testFilter === filter && <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />}
+                        <Text style={[styles.filterText, { color: testFilter === filter ? "#ffffff" : (isDark ? "#64748b" : "#94a3b8") }]}>{filter.charAt(0).toUpperCase() + filter.slice(1)}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </GlassCard>
+
+                {filteredTests.length === 0 ? (
+                  <View style={styles.emptyTests}>
+                    <Text style={{ color: isDark ? "#64748b" : "#94a3b8" }}>No {testFilter === "all" ? "" : testFilter} tests</Text>
+                  </View>
+                ) : (
+                  <View style={styles.testsList}>
+                    {filteredTests.map((test) => (
+                      <View key={test.id} style={[styles.testItem, { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)" }]}>
+                        <View style={styles.testItemTop}>
+                          <View style={styles.testItemInfo}>
+                            <View style={styles.testItemHeader}>
+                              <View style={[styles.testDot, { backgroundColor: test.color }]} />
+                              <Text style={[styles.testName, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{test.name}</Text>
+                            </View>
+                            <Text style={[styles.testCards, { color: isDark ? "#64748b" : "#94a3b8" }]}>{test.cardCount} cards</Text>
+                          </View>
+                          <View style={[styles.readyBadge, { backgroundColor: test.readyPercentage >= 80 ? (isDark ? "rgba(16,185,129,0.2)" : "#d1fae5") : test.readyPercentage >= 60 ? (isDark ? "rgba(251,191,36,0.2)" : "#fef3c7") : (isDark ? "rgba(239,68,68,0.2)" : "#fee2e2") }]}>
+                            <Text style={[styles.readyText, { color: test.readyPercentage >= 80 ? "#10b981" : test.readyPercentage >= 60 ? "#f59e0b" : "#ef4444" }]}>{test.readyPercentage}%</Text>
+                          </View>
+                        </View>
+                        <View style={[styles.testItemBottom, { borderTopColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]}>
+                          <Text style={[styles.testDate, { color: isDark ? "#64748b" : "#94a3b8" }]}>{format(new Date(test.testDate!), "MMM d, yyyy")}</Text>
+                          {test.isPast ? (
+                            <Text style={{ color: isDark ? "#64748b" : "#94a3b8", fontSize: 13, fontWeight: "500" }}>Finished</Text>
+                          ) : (
+                            <Text style={{ color: "#667eea", fontSize: 13, fontWeight: "600" }}>{test.daysLeft === 0 ? "Today" : test.daysLeft === 1 ? "Tomorrow" : `${test.daysLeft} days left`}</Text>
+                          )}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </GlassCard>
+            )}
+
+            <View style={{ height: 32 }} />
           </View>
         </ScrollView>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  safeArea: { flex: 1 },
+  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
+  headerTitle: { fontSize: 34, fontWeight: "800", letterSpacing: -0.5 },
+  scrollView: { flex: 1 },
+  content: { paddingHorizontal: 20, paddingTop: 8 },
+  card: { marginBottom: 16 },
+  cardTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
+  cardSubtitle: { fontSize: 13, marginBottom: 16 },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  weekStats: { gap: 12 },
+  weekStatItem: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  weekStatLabel: { fontSize: 15 },
+  weekStatValue: { fontSize: 20, fontWeight: "700" },
+  masterySection: { gap: 16 },
+  masteryItem: {},
+  masteryHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+  masteryLabel: { fontSize: 14, fontWeight: "600" },
+  masteryValue: { fontSize: 14, fontWeight: "600" },
+  progressBar: { height: 8, borderRadius: 4, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 4 },
+  decksList: {},
+  deckItem: { paddingVertical: 12 },
+  deckItemHeader: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
+  deckDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+  deckName: { fontSize: 15, fontWeight: "600" },
+  deckStats: { fontSize: 13 },
+  chartContainer: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", height: 160, marginTop: 8 },
+  chartBar: { flex: 1, alignItems: "center" },
+  chartBarInner: { flex: 1, justifyContent: "flex-end", alignItems: "center", marginBottom: 8 },
+  chartCount: { fontSize: 11, fontWeight: "600", marginBottom: 4 },
+  bar: { width: 24, borderRadius: 6 },
+  chartLabel: { fontSize: 11 },
+  filterContainer: { marginBottom: 16 },
+  filterRow: { flexDirection: "row" },
+  filterTab: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center", overflow: "hidden" },
+  filterTabActive: { overflow: "hidden" },
+  filterText: { fontSize: 13, fontWeight: "600" },
+  emptyTests: { paddingVertical: 32, alignItems: "center" },
+  testsList: { gap: 12 },
+  testItem: { borderRadius: 16, overflow: "hidden" },
+  testItemTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14 },
+  testItemInfo: { flex: 1 },
+  testItemHeader: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
+  testDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
+  testName: { fontSize: 15, fontWeight: "600" },
+  testCards: { fontSize: 12 },
+  readyBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  readyText: { fontSize: 13, fontWeight: "700" },
+  testItemBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1 },
+  testDate: { fontSize: 13 },
+  floatingShape: { position: "absolute", borderRadius: 100, opacity: 0.12 },
+  shape1: { width: 180, height: 180, top: -60, right: -40 },
+  shape2: { width: 120, height: 120, bottom: 300, left: -40 },
+  shape3: { width: 80, height: 80, top: 400, right: -20 },
+});
