@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, Pressable, Alert, Platform, StyleSheet, Animated } from "react-native";
+import { View, Text, Pressable, Alert, StyleSheet, Animated } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,7 +16,7 @@ type NotificationsSetupScreenProps = {
 };
 
 export default function NotificationsSetupScreen({ navigation }: NotificationsSetupScreenProps) {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -35,7 +35,7 @@ export default function NotificationsSetupScreen({ navigation }: NotificationsSe
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim]);
 
   const handleEnableNotifications = async () => {
     setIsLoading(true);
@@ -133,7 +133,7 @@ export default function NotificationsSetupScreen({ navigation }: NotificationsSe
             }}
           >
             <Text style={[styles.description, { color: isDark ? "#94a3b8" : "#64748b" }]}>
-              We'll send you a gentle reminder when your cards are due. 
+              We’ll send you a gentle reminder when your cards are due. 
               Just 10 minutes a day keeps the knowledge in!
             </Text>
           </Animated.View>

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, View } from "react-native";
-import Svg, { Path, Defs, LinearGradient, Stop, G, Circle, Rect } from "react-native-svg";
+import Svg, { Path, Defs, LinearGradient, Stop, G, Circle } from "react-native-svg";
 
 interface NotificationIllustrationProps {
   size?: number;
@@ -56,7 +56,7 @@ export default function NotificationIllustration({ size = 200, animated = true }
         }),
       ])
     ).start();
-  }, [animated]);
+  }, [animated, floatAnim, ringAnim]);
 
   const rotation = ringAnim.interpolate({
     inputRange: [-1, 0, 1],

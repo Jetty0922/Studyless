@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -25,12 +25,26 @@ export default function ReviewScreen() {
   const reviewFlashcard = useFlashcardStore((s) => s.reviewFlashcard);
 
   const { colors, isDark } = useTheme();
+  const safeInsets = useSafeAreaInsets();
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [reviewedCount, setReviewedCount] = useState(0);
   const [sessionCards, setSessionCards] = useState<Flashcard[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // #region agent log
+  useEffect(() => {
+    const currentDims = Dimensions.get('window');
+    fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:mount',message:'Component mounted',data:{moduleLevelWidth:SCREEN_WIDTH,currentWindowWidth:currentDims.width,currentWindowHeight:currentDims.height,progressMaxWidth:SCREEN_WIDTH-120,headerMaxWidth:SCREEN_WIDTH,safeInsets:safeInsets},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
+    
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:dimensionChange',message:'Dimension changed',data:{newWidth:window.width,newHeight:window.height,oldModuleWidth:SCREEN_WIDTH,mismatch:window.width!==SCREEN_WIDTH},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
+    });
+    
+    return () => subscription?.remove();
+  }, [safeInsets]);
+  // #endregion
 
   const flipAnim = useRef(new Animated.Value(0)).current;
 
@@ -66,6 +80,13 @@ export default function ReviewScreen() {
 
   useEffect(() => { flipAnim.setValue(0); }, [currentIndex]);
 
+  // #region agent log
+  useEffect(() => {
+    const dims = Dimensions.get('window');
+    fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:render',message:'Render with dimensions',data:{currentIndex,showAnswer,moduleLevelWidth:SCREEN_WIDTH,actualWindowWidth:dims.width,widthMismatch:dims.width!==SCREEN_WIDTH,cardId:currentCard?.id,isInitialized,sessionCardsLength:sessionCards.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
+  });
+  // #endregion
+
   const handleFlip = () => {
     if (showAnswer) {
       Animated.spring(flipAnim, { toValue: 0, friction: 8, tension: 10, useNativeDriver: true }).start();
@@ -78,6 +99,11 @@ export default function ReviewScreen() {
 
   const handleRating = (rating: ReviewRating) => {
     if (!currentCard) return;
+
+    // #region agent log
+    const beforeDims = Dimensions.get('window');
+    fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:handleRating:before',message:'Before review',data:{rating,cardId:currentCard.id,currentIndex,sessionLength:sessionCards.length,windowWidth:beforeDims.width,moduleWidth:SCREEN_WIDTH},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
+    // #endregion
 
     if (rating === "AGAIN") {
       reviewFlashcard(currentCard.id, rating);
@@ -98,6 +124,11 @@ export default function ReviewScreen() {
         navigation.goBack();
       }
     }
+
+    // #region agent log
+    const afterDims = Dimensions.get('window');
+    fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:handleRating:after',message:'After review',data:{rating,newIndex:currentIndex,windowWidth:afterDims.width,moduleWidth:SCREEN_WIDTH,widthChanged:beforeDims.width!==afterDims.width},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
+    // #endregion
   };
 
   const handleClose = () => navigation.goBack();

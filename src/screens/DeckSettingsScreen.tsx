@@ -16,7 +16,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type DeckSettingsRouteProp = RouteProp<RootStackParamList, "DeckSettings">;
 
 export default function DeckSettingsScreen() {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<DeckSettingsRouteProp>();
   const { deckId } = route.params;
@@ -91,7 +91,12 @@ export default function DeckSettingsScreen() {
   const handleDeleteDeck = () => {
     Alert.alert("Delete Deck", "This will permanently delete this deck and all its flashcards. This cannot be undone.", [
       { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => { deleteDeck(deckId); navigation.goBack(); } },
+      { text: "Delete", style: "destructive", onPress: () => { 
+        deleteDeck(deckId); 
+        // Navigate back twice: DeckSettings -> DeckScreen -> DecksListScreen
+        navigation.goBack();
+        navigation.goBack();
+      }},
     ]);
   };
 

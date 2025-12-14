@@ -33,7 +33,7 @@ const cards: CarouselCard[] = [
     illustration: <CalendarIllustration size={160} animated />,
     step: 2,
     title: "Set Your Test Date",
-    description: "Tell us when your exam is. We'll build a personalized study schedule that fits your timeline.",
+    description: "Tell us when your exam is. We’ll build a personalized study schedule that fits your timeline.",
     accentColor: "#a78bfa",
   },
   {
@@ -57,7 +57,7 @@ export default function HowItWorksScreen({ navigation }: HowItWorksScreenProps) 
       duration: 600,
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const handleNext = () => {
     if (currentIndex < cards.length - 1) {

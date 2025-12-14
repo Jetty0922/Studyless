@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, ScrollView, Pressable, TouchableOpacity, Switch, Platform, Alert, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,7 +11,7 @@ import {
   calculateTestPrepReview, 
   calculateLongTermReview, 
   generateSchedule,
-  getInitialFSRSParams,
+  convertCardToLongTerm,
 } from "../utils/spacedRepetition";
 import { Flashcard, ReviewRating } from "../types/flashcard";
 import { format, addDays, differenceInDays, startOfDay } from "date-fns";
@@ -48,31 +48,43 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
 
   const [lastResult, setLastResult] = useState<SimulatorResult | null>(null);
 
-  // Load State on Mount
-  useEffect(() => {
-    loadState();
-  }, []);
+  const resetCard = useCallback((targetMode?: "TEST_PREP" | "LONG_TERM") => {
+    const effectiveMode = targetMode || mode;
+    const now = new Date();
+    let newCard: Partial<Flashcard> = {
+      id: "mock-" + Date.now(),
+      mode: effectiveMode,
+      createdAt: now,
+      nextReviewDate: now,
+      front: "Mock Question",
+      back: "Mock Answer",
+      currentStep: 0,
+      schedule: [0, 1, 3, 7, 14, 21, 28, 35, 45, 60],
+    };
 
-  // Save State on Change
-  useEffect(() => {
-    if (isLoaded) {
-      saveState();
+    if (effectiveMode === "TEST_PREP") {
+      newCard = {
+        ...newCard,
+        testDate: testDate,
+        mastery: "LEARNING",
+        againCount: 0,
+        schedule: generateSchedule(testDate),
+      };
+    } else {
+      newCard = {
+        ...newCard,
+        state: 0,
+        stability: 0,
+        difficulty: 0,
+        last_review: undefined,
+      };
     }
-  }, [mode, testDate, simulatedDays, mockCard, lastResult, autoAdvance]);
+    setSimulatedDays(0);
+    setMockCard(newCard);
+    setLastResult(null);
+  }, [mode, testDate]);
 
-  // Re-calculate ladder/schedule when Test Date changes
-  useEffect(() => {
-    if (!isLoaded) return;
-    if (mode === "TEST_PREP") {
-        setMockCard(prev => ({
-            ...prev,
-            testDate: testDate,
-            schedule: generateSchedule(testDate)
-        }));
-    }
-  }, [testDate]);
-
-  const loadState = async () => {
+  const loadState = useCallback(async () => {
     try {
       const json = await AsyncStorage.getItem(STORAGE_KEY);
       if (json) {
@@ -103,9 +115,9 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
     } finally {
       setIsLoaded(true);
     }
-  };
+  }, [resetCard]);
 
-  const saveState = async () => {
+  const saveState = useCallback(async () => {
     try {
       const data = {
         mode,
@@ -119,43 +131,31 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
     } catch (e) {
       console.error("Failed to save simulator state", e);
     }
-  };
+  }, [autoAdvance, lastResult, mockCard, mode, simulatedDays, testDate]);
 
-  const resetCard = (targetMode?: "TEST_PREP" | "LONG_TERM") => {
-    const effectiveMode = targetMode || mode;
-    const now = new Date();
-    let newCard: Partial<Flashcard> = {
-      id: "mock-" + Date.now(),
-      mode: effectiveMode,
-      createdAt: now,
-      nextReviewDate: now,
-      front: "Mock Question",
-      back: "Mock Answer",
-      currentStep: 0,
-      schedule: [0, 1, 3, 7, 14, 21, 28, 35, 45, 60],
-    };
+  // Load State on Mount
+  useEffect(() => {
+    loadState();
+  }, [loadState]);
 
-    if (effectiveMode === "TEST_PREP") {
-      newCard = {
-        ...newCard,
-        testDate: testDate,
-        mastery: "LEARNING",
-        againCount: 0,
-        schedule: generateSchedule(testDate),
-      };
-    } else {
-      newCard = {
-        ...newCard,
-        state: 0, 
-        stability: 0,
-        difficulty: 0,
-        last_review: undefined,
-      };
+  // Save State on Change
+  useEffect(() => {
+    if (isLoaded) {
+      saveState();
     }
-    setSimulatedDays(0); 
-    setMockCard(newCard);
-    setLastResult(null);
-  };
+  }, [isLoaded, saveState, mode, testDate, simulatedDays, mockCard, lastResult, autoAdvance]);
+
+  // Re-calculate ladder/schedule when Test Date changes
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (mode === "TEST_PREP") {
+      setMockCard(prev => ({
+        ...prev,
+        testDate: testDate,
+        schedule: generateSchedule(testDate)
+      }));
+    }
+  }, [isLoaded, mode, testDate]);
 
   const handleReview = (rating: ReviewRating) => {
     const card = mockCard as Flashcard;
@@ -189,25 +189,18 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
 
   const handleSimulateConversion = () => {
       try {
-        const mastery = mockCard.mastery as "LEARNING" | "STRUGGLING" | "MASTERED" | undefined;
-        const initialParams = getInitialFSRSParams(mastery);
-        const gapDate = mockCard.testDate || addDays(new Date(), simulatedDays);
-        const nextDue = addDays(gapDate, initialParams.stability);
+        // Use centralized conversion helper
+        const now = addDays(new Date(), simulatedDays);
+        const updates = convertCardToLongTerm(mockCard as Flashcard, now);
 
         setMode("LONG_TERM");
         setMockCard(prev => ({
             ...prev,
-            mode: "LONG_TERM",
-            testDate: undefined,
-            schedule: undefined,
-            currentStep: undefined,
-            mastery: undefined,
-            ...initialParams,
-            last_review: gapDate,
-            nextReviewDate: nextDue
+            ...updates,
         }));
         
-        Alert.alert("Converted", `Card converted to Long Term mode.\nStability: ${initialParams.stability}\nNext Due: ${format(nextDue, "MMM d")}`);
+        const nextDueFormatted = updates.nextReviewDate ? format(updates.nextReviewDate, "MMM d") : "Now";
+        Alert.alert("Converted", `Card converted to Long Term mode.\nStability: ${updates.stability ?? 0}\nNext Due: ${nextDueFormatted}`);
 
       } catch (e) {
           Alert.alert("Error", "Conversion failed: " + (e as Error).message);

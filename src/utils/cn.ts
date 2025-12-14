@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+  // NativeWind doesn't require tailwind-merge; keep this helper lightweight.
+  return clsx(inputs);
 }

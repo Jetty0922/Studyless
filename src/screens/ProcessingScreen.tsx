@@ -15,7 +15,7 @@ type ProcessingScreenProps = {
 };
 
 export default function ProcessingScreen({ navigation, route }: ProcessingScreenProps) {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const { photoUri, fileUri, type } = route.params;
   const uri = fileUri || photoUri;
   const [status, setStatus] = useState("Initializing...");
@@ -36,7 +36,7 @@ export default function ProcessingScreen({ navigation, route }: ProcessingScreen
     Animated.loop(
       Animated.timing(rotateAnim, { toValue: 1, duration: 3000, easing: Easing.linear, useNativeDriver: true })
     ).start();
-  }, []);
+  }, [pulseAnim, rotateAnim]);
 
   const spin = rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 

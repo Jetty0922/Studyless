@@ -35,7 +35,7 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim]);
 
   const handleSignIn = async () => {
     if (!email || !password) {
@@ -221,7 +221,7 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
               ]}
             >
               <Text style={[styles.footerText, { color: isDark ? "#94a3b8" : "#64748b" }]}>
-                Don't have an account?{" "}
+                Don’t have an account?{" "}
               </Text>
               <Pressable onPress={() => navigation.navigate("CreateAccount")}>
                 <Text style={styles.signUpLink}>Sign Up</Text>

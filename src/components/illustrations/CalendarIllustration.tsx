@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, View } from "react-native";
-import Svg, { Rect, Path, Defs, LinearGradient, Stop, G, Circle, Text as SvgText, Line } from "react-native-svg";
+import Svg, { Rect, Path, Defs, LinearGradient, Stop, G, Circle, Text as SvgText } from "react-native-svg";
 
 interface CalendarIllustrationProps {
   size?: number;
@@ -46,7 +46,7 @@ export default function CalendarIllustration({ size = 200, animated = true }: Ca
         }),
       ])
     ).start();
-  }, [animated]);
+  }, [animated, checkAnim, floatAnim]);
 
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>

@@ -37,7 +37,7 @@ export default function ValuePropScreen({ navigation }: ValuePropScreenProps) {
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [badgeFade, fadeAnim, slideAnim]);
 
   return (
     <View style={styles.container}>
@@ -62,7 +62,7 @@ export default function ValuePropScreen({ navigation }: ValuePropScreenProps) {
             ]}
           >
             <View style={styles.iconCircle}>
-              <Ionicons name="sparkles" size={56} color="#ffffff" />
+              <Ionicons name="sparkles" size={60} color="#ffffff" style={styles.sparkleIcon} />
             </View>
           </Animated.View>
 
@@ -74,8 +74,8 @@ export default function ValuePropScreen({ navigation }: ValuePropScreenProps) {
             }}
           >
             <Text style={styles.headline}>
-              Remember{"\n"}
-              <Text style={styles.headlineAccent}>Everything</Text> You Learn
+              Study Less{"\n"}
+              <Text style={styles.headlineAccent}>Remember More</Text>
             </Text>
           </Animated.View>
 
@@ -87,8 +87,8 @@ export default function ValuePropScreen({ navigation }: ValuePropScreenProps) {
             }}
           >
             <Text style={styles.subheadline}>
-              Students retain <Text style={styles.stat}>3x more</Text> with{"\n"}
-              AI-powered spaced repetition
+              AI-powered flashcards that adapt to{"\n"}
+              your memory. Study smarter, not harder.
             </Text>
           </Animated.View>
 
@@ -160,6 +160,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "rgba(167, 139, 250, 0.4)",
+  },
+  sparkleIcon: {
+    transform: [
+      { translateX: 0.5 },
+      { translateY: 1 },
+    ],
   },
   headline: {
     fontSize: 42,

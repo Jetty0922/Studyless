@@ -4,7 +4,6 @@ import {
   differenceInDays,
   isAfter,
   subDays,
-  parseISO,
   isSameDay,
 } from "date-fns";
 import { Card as FSRSCard, FSRS, Rating, generatorParameters } from "ts-fsrs";
@@ -143,74 +142,207 @@ export const calculateTestPrepReview = (
     nextReviewDate,
     mastery,
     lastResponse: rating,
+    last_review: today, // Track when this card was last reviewed
     schedule, // Return schedule in case it was generated
     interval // Return interval for simulator visibility
   };
 };
 
 // ============================================================================
-// PART 3: LONG TERM LOGIC (FSRS Integration)
+// PART 3: LONG TERM LOGIC (FSRS Integration) - Clean Architecture
 // ============================================================================
 
-// Initialize FSRS with FSRS-5 weights, tuned for average students
-// - Uses official FSRS-5 research weights for proper exponential growth
-// - request_retention: 0.92 (slightly conservative for casual learners)
-// - maximum_interval: 365 days (1 year cap for peace of mind)
+// --- CONFIGURATION ---
+// Minimum intervals to prevent cards from appearing due immediately after review
+// FSRS can schedule very short intervals (seconds) for new/learning cards
+export const LONG_TERM_MIN_INTERVALS = {
+  again: 0,                   // Immediately due (can continue session)
+  hard: 5 * 60 * 1000,       // 5 minutes
+  good: 10 * 60 * 1000,      // 10 minutes
+  easy: 0,                    // No minimum (FSRS usually gives days)
+} as const;
+
+// Default values for new LONG_TERM cards
+export const LONG_TERM_DEFAULTS = {
+  state: 0,        // New
+  stability: 0,    // FSRS calculates on first review
+  difficulty: 5,   // Average baseline (scale 1-10)
+  lapses: 0,
+  reps: 0,
+} as const;
+
+// Mastery thresholds
+const MASTERY_THRESHOLDS = {
+  stabilityForMastered: 21,  // 3 weeks stability = MASTERED
+  lapsesForStruggling: 2,    // 2+ lapses = STRUGGLING
+} as const;
+
+// Initialize FSRS with FSRS-5 weights, tuned for daily students
 const fsrs = new FSRS(generatorParameters({
-  maximum_interval: 365,   // Cap at 1 year (reassuring for average users)
-  request_retention: 0.92, // 92% retention = ~25% shorter intervals than default
+  maximum_interval: 365,   // Cap at 1 year
+  request_retention: 0.90, // 90% retention - balanced for daily study
   w: [
-    0.4072,  // w0:  Initial stability for 'Again'
-    1.1829,  // w1:  Initial stability for 'Hard'
-    3.1262,  // w2:  Initial stability for 'Good'
-    15.4722, // w3:  Initial stability for 'Easy'
-    7.2102,  // w4:  Difficulty baseline
-    0.5316,  // w5:  Stability increment multiplier (KEY: enables ~2.5x growth)
-    1.0651,  // w6:  Difficulty influence on stability increase
-    0.0234,  // w7:  Stability saturation (KEY: near 0 = true exponential)
-    1.616,   // w8:  Retrievability influence (rewards difficult recalls)
-    0.1544,  // w9:  Hard penalty factor
-    1.0824,  // w10: Lapse stability decay
-    1.9813,  // w11: Lapse difficulty increase
-    0.0953,  // w12: Lapse short-term stability
-    0.2975,  // w13: Lapse retrievability factor
-    2.2042,  // w14: Difficulty ceiling factor
-    0.2407,  // w15: Difficulty floor factor
-    2.9466,  // w16: Stability recovery base
-    0.5034,  // w17: Stability recovery modifier
-    0.6567   // w18: Forgetting curve shape
+    0.4072, 1.1829, 3.1262, 15.4722, 7.2102, 0.5316, 1.0651, 0.0234,
+    1.616, 0.1544, 1.0824, 1.9813, 0.0953, 0.2975, 2.2042, 0.2407,
+    2.9466, 0.5034, 0.6567
   ]
 }));
 
-/**
- * Migration Logic Helpers
- * (Actual iteration is in store)
- */
-export const getInitialFSRSParams = (
-  mastery: 'LEARNING' | 'STRUGGLING' | 'MASTERED' | undefined
-) => {
-  switch (mastery) {
-    case "MASTERED":
-      return { state: 2, stability: 7, difficulty: 5 }; // Review (Lowered from 15)
-    case "LEARNING":
-      return { state: 1, stability: 1, difficulty: 6 };  // Learning (Lowered from 3)
-    default: // STRUGGLING or NULL
-      return { state: 0, stability: 0, difficulty: 8 };  // New
-  }
-};
+// --- HELPER: Build FSRS Card Object ---
+// Centralized to eliminate duplication between review and preview functions
+function buildFSRSCard(card: Flashcard, now: Date): FSRSCard {
+  const dueDate = card.nextReviewDate instanceof Date 
+    ? card.nextReviewDate 
+    : new Date(card.nextReviewDate);
+  const lastReviewDate = card.last_review 
+    ? (card.last_review instanceof Date ? card.last_review : new Date(card.last_review))
+    : undefined;
 
+  return {
+    due: dueDate,
+    stability: card.stability ?? LONG_TERM_DEFAULTS.stability,
+    difficulty: card.difficulty ?? LONG_TERM_DEFAULTS.difficulty,
+    elapsed_days: lastReviewDate ? differenceInDays(now, lastReviewDate) : 0,
+    scheduled_days: lastReviewDate ? differenceInDays(dueDate, lastReviewDate) : 0,
+    reps: card.reps ?? LONG_TERM_DEFAULTS.reps,
+    state: card.state ?? LONG_TERM_DEFAULTS.state,
+    last_review: lastReviewDate,
+    lapses: card.lapses ?? LONG_TERM_DEFAULTS.lapses,
+    learning_steps: 0,
+  };
+}
+
+// --- SINGLE SOURCE OF TRUTH: Mastery Calculation ---
 /**
- * Button Handler: calculateLongTermReview(card, rating)
- * Logic: Strictly use ts-fsrs.
+ * Calculate mastery for a LONG_TERM card based on FSRS state.
+ * This is THE definition used everywhere in the app.
+ * 
+ * @param card - The flashcard (or partial with state, stability, lapses)
+ * @returns "LEARNING" | "STRUGGLING" | "MASTERED"
+ * 
+ * Rules:
+ * - STRUGGLING: Relearning state (3) OR 2+ lapses
+ * - MASTERED: Review state (2) AND stability >= 21 days
+ * - LEARNING: Everything else (New, Learning, or early Review)
+ */
+export function getMastery(card: Pick<Flashcard, 'state' | 'stability' | 'lapses'>): "LEARNING" | "STRUGGLING" | "MASTERED" {
+  const state = card.state ?? 0;
+  const stability = card.stability ?? 0;
+  const lapses = card.lapses ?? 0;
+
+  // STRUGGLING: Relearning (forgot it) OR high lapse count
+  if (state === 3 || lapses >= MASTERY_THRESHOLDS.lapsesForStruggling) {
+    return "STRUGGLING";
+  }
+
+  // MASTERED: Review state with long-term stability
+  if (state === 2 && stability >= MASTERY_THRESHOLDS.stabilityForMastered) {
+    return "MASTERED";
+  }
+
+  // LEARNING: Everything else (New=0, Learning=1, or Review with low stability)
+  return "LEARNING";
+}
+
+// --- FACTORY: Create New LONG_TERM Card Fields ---
+/**
+ * Returns the FSRS fields for a brand new LONG_TERM card.
+ * Used by flashcardStore.addFlashcard and addFlashcardsBatch.
+ */
+export function createNewLongTermCard(): {
+  mode: "LONG_TERM";
+  state: number;
+  stability: number;
+  difficulty: number;
+  lapses: number;
+  reps: number;
+  mastery: "LEARNING";
+  nextReviewDate: Date;
+} {
+  return {
+    mode: "LONG_TERM",
+    state: LONG_TERM_DEFAULTS.state,
+    stability: LONG_TERM_DEFAULTS.stability,
+    difficulty: LONG_TERM_DEFAULTS.difficulty,
+    lapses: LONG_TERM_DEFAULTS.lapses,
+    reps: LONG_TERM_DEFAULTS.reps,
+    mastery: "LEARNING",
+    nextReviewDate: new Date(), // Due immediately
+  };
+}
+
+// --- MIGRATION: Convert TEST_PREP Card to LONG_TERM ---
+/**
+ * Converts a TEST_PREP card to LONG_TERM mode.
+ * Uses the card's existing mastery to seed initial FSRS values.
+ * 
+ * @param card - The TEST_PREP card to convert
+ * @param now - Current date (for setting last_review)
+ * @returns Partial flashcard updates for LONG_TERM mode
+ */
+export function convertCardToLongTerm(
+  card: Flashcard,
+  now: Date = new Date()
+): Partial<Flashcard> {
+  // Map TEST_PREP mastery to initial FSRS params
+  let initialState: number;
+  let initialStability: number;
+  let initialDifficulty: number;
+
+  switch (card.mastery) {
+    case "MASTERED":
+      initialState = 2;        // Review state
+      initialStability = 21;   // 3 weeks
+      initialDifficulty = 5;   // Average
+      break;
+    case "LEARNING":
+      initialState = 1;        // Learning state
+      initialStability = 3;    // 3 days
+      initialDifficulty = 5;   // Average
+      break;
+    case "STRUGGLING":
+    default:
+      initialState = 0;        // New state (will re-learn)
+      initialStability = 0;    // FSRS will calculate
+      initialDifficulty = 7;   // Slightly harder
+      break;
+  }
+
+  // Calculate next review based on initial stability
+  const nextReviewDate = initialStability > 0
+    ? addDays(now, initialStability)
+    : now; // Due immediately if no stability
+
+  return {
+    mode: "LONG_TERM",
+    state: initialState,
+    stability: initialStability,
+    difficulty: initialDifficulty,
+    lapses: 0,
+    reps: 0,
+    last_review: now,
+    nextReviewDate,
+    mastery: getMastery({ state: initialState, stability: initialStability, lapses: 0 }),
+    // Clear TEST_PREP fields
+    testDate: undefined,
+    schedule: undefined,
+    currentStep: undefined,
+  };
+}
+
+// --- REVIEW: Calculate LONG_TERM Review Result ---
+/**
+ * Calculate the next state for a LONG_TERM card after a review.
+ * Uses ts-fsrs algorithm with minimum interval enforcement.
  */
 export const calculateLongTermReview = (
   card: Flashcard,
   rating: ReviewRating,
-  nowStr?: Date // Optional time-travel for simulation
+  nowOverride?: Date
 ): Partial<Flashcard> => {
-  const now = nowStr || new Date(); // FSRS uses specific time
+  const now = nowOverride || new Date();
   
-  // Map Rating: AGAIN->1, HARD->2, GOOD->3, EASY->4
+  // Map app rating to FSRS rating
   let fsrsRating: Rating;
   switch (rating) {
     case "AGAIN": fsrsRating = Rating.Again; break;
@@ -219,47 +351,42 @@ export const calculateLongTermReview = (
     case "EASY": fsrsRating = Rating.Easy; break;
   }
 
-  // Ensure dates are Date objects (they may be strings from storage)
-  const dueDate = card.nextReviewDate instanceof Date 
-    ? card.nextReviewDate 
-    : new Date(card.nextReviewDate);
-  const lastReviewDate = card.last_review 
-    ? (card.last_review instanceof Date ? card.last_review : new Date(card.last_review))
-    : undefined;
-
-  // Construct FSRS Card object
-  const fCard: FSRSCard = {
-    due: dueDate,
-    stability: card.stability || 0,
-    difficulty: card.difficulty || 0,
-    elapsed_days: lastReviewDate 
-      ? differenceInDays(now, lastReviewDate) 
-      : 0,
-    scheduled_days: lastReviewDate
-      ? differenceInDays(dueDate, lastReviewDate)
-      : 0,
-    reps: card.reps || 0,
-    state: card.state || 0,
-    last_review: lastReviewDate,
-    lapses: card.lapses || 0,
-    learning_steps: 0,
-  };
-
-  // Run fsrs.repeat
+  // Build FSRS card and run algorithm
+  const fCard = buildFSRSCard(card, now);
   const schedulingCards = fsrs.repeat(fCard, now);
-  
-  // Get result for the specific rating
   const result = schedulingCards[fsrsRating].card;
+
+  // Apply minimum intervals based on rating
+  let minIntervalMs: number;
+  switch (fsrsRating) {
+    case Rating.Again: minIntervalMs = LONG_TERM_MIN_INTERVALS.again; break;
+    case Rating.Hard: minIntervalMs = LONG_TERM_MIN_INTERVALS.hard; break;
+    case Rating.Good: minIntervalMs = LONG_TERM_MIN_INTERVALS.good; break;
+    case Rating.Easy: minIntervalMs = LONG_TERM_MIN_INTERVALS.easy; break;
+    default: minIntervalMs = 0;
+  }
+
+  const fsrsIntervalMs = result.due.getTime() - now.getTime();
+  const actualIntervalMs = Math.max(fsrsIntervalMs, minIntervalMs);
+  const nextReviewDate = new Date(now.getTime() + actualIntervalMs);
+
+  // Calculate mastery using single source of truth
+  const mastery = getMastery({
+    state: result.state,
+    stability: result.stability,
+    lapses: result.lapses,
+  });
 
   return {
     state: result.state,
     stability: result.stability,
     difficulty: result.difficulty,
-    nextReviewDate: result.due,
+    nextReviewDate,
     last_review: now,
     lastResponse: rating,
     reps: result.reps,
     lapses: result.lapses,
+    mastery,
   };
 };
 
@@ -373,50 +500,31 @@ function getTestPrepIntervalPreviews(card: Flashcard): IntervalPreview {
 function getLongTermIntervalPreviews(card: Flashcard): IntervalPreview {
   const now = new Date();
   
-  // Ensure dates are Date objects
-  const dueDate = card.nextReviewDate instanceof Date 
-    ? card.nextReviewDate 
-    : new Date(card.nextReviewDate);
-  const lastReviewDate = card.last_review 
-    ? (card.last_review instanceof Date ? card.last_review : new Date(card.last_review))
-    : undefined;
-
-  // Construct FSRS Card object
-  const fCard: FSRSCard = {
-    due: dueDate,
-    stability: card.stability || 0,
-    difficulty: card.difficulty || 0,
-    elapsed_days: lastReviewDate 
-      ? differenceInDays(now, lastReviewDate) 
-      : 0,
-    scheduled_days: lastReviewDate
-      ? differenceInDays(dueDate, lastReviewDate)
-      : 0,
-    reps: card.reps || 0,
-    state: card.state || 0,
-    last_review: lastReviewDate,
-    lapses: card.lapses || 0,
-    learning_steps: 0,
-  };
-
-  // Get all scheduling options from FSRS
+  // Use centralized FSRS card builder
+  const fCard = buildFSRSCard(card, now);
   const schedulingCards = fsrs.repeat(fCard, now);
 
-  // Calculate intervals in days for each rating
-  const againDue = schedulingCards[Rating.Again].card.due;
-  const hardDue = schedulingCards[Rating.Hard].card.due;
-  const goodDue = schedulingCards[Rating.Good].card.due;
-  const easyDue = schedulingCards[Rating.Easy].card.due;
+  // Calculate intervals with minimum enforcement (same as calculateLongTermReview)
+  // Note: "Again" is always "Now" so we skip calculating it
+  const hardFsrsMs = schedulingCards[Rating.Hard].card.due.getTime() - now.getTime();
+  const goodFsrsMs = schedulingCards[Rating.Good].card.due.getTime() - now.getTime();
+  const easyFsrsMs = schedulingCards[Rating.Easy].card.due.getTime() - now.getTime();
 
-  const againDays = differenceInDays(againDue, now) + (againDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24) % 1;
-  const hardDays = differenceInDays(hardDue, now) + (hardDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24) % 1;
-  const goodDays = differenceInDays(goodDue, now) + (goodDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24) % 1;
-  const easyDays = differenceInDays(easyDue, now) + (easyDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24) % 1;
+  // Apply minimums using shared config
+  const hardMs = Math.max(hardFsrsMs, LONG_TERM_MIN_INTERVALS.hard);
+  const goodMs = Math.max(goodFsrsMs, LONG_TERM_MIN_INTERVALS.good);
+  const easyMs = Math.max(easyFsrsMs, LONG_TERM_MIN_INTERVALS.easy);
+
+  // Convert to days for formatting
+  const MS_PER_DAY = 1000 * 60 * 60 * 24;
+  const hardDays = hardMs / MS_PER_DAY;
+  const goodDays = goodMs / MS_PER_DAY;
+  const easyDays = easyMs / MS_PER_DAY;
 
   return {
-    again: againDays < 0.01 ? "Now" : formatInterval(againDays),
-    hard: formatInterval(Math.max(0.01, hardDays)),
-    good: formatInterval(Math.max(0.01, goodDays)),
+    again: "Now",
+    hard: formatInterval(Math.max(0.0035, hardDays)),
+    good: formatInterval(Math.max(0.007, goodDays)),
     easy: formatInterval(Math.max(0.01, easyDays)),
   };
 }

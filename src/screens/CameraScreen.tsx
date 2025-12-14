@@ -12,7 +12,7 @@ type CameraScreenProps = {
 };
 
 export default function CameraScreen({ navigation }: CameraScreenProps) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const [facing, setFacing] = useState<CameraType>("back");
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);

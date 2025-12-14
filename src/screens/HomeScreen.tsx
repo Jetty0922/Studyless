@@ -30,7 +30,7 @@ import {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function HomeScreen() {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const decks = useFlashcardStore((s) => s.decks);
   const flashcards = useFlashcardStore((s) => s.flashcards);
@@ -45,7 +45,6 @@ export default function HomeScreen() {
   const [showPostTestDialog, setShowPostTestDialog] = useState(false);
   const [showLongTermDialog, setShowLongTermDialog] = useState(false);
   const [currentPostTestDeck, setCurrentPostTestDeck] = useState<string | null>(null);
-  const [testResponse, setTestResponse] = useState<string | null>(null);
 
   useEffect(() => {
     const decksNeedingDialog = getDecksNeedingPostTestDialog();
@@ -53,7 +52,7 @@ export default function HomeScreen() {
       setCurrentPostTestDeck(decksNeedingDialog[0].id);
       setShowPostTestDialog(true);
     }
-  }, []);
+  }, [getDecksNeedingPostTestDialog]);
 
   const dueCards = getDueCards();
 
@@ -114,7 +113,7 @@ export default function HomeScreen() {
       if (!result.canceled && result.assets[0]) {
         await processAndGenerateFlashcards(result.assets[0].uri, result.assets[0].mimeType);
       }
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to take photo. Please try again.");
     }
   };
@@ -127,7 +126,7 @@ export default function HomeScreen() {
       if (!result.canceled && result.assets[0]) {
         await processAndGenerateFlashcards(result.assets[0].uri, result.assets[0].mimeType);
       }
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to pick image. Please try again.");
     }
   };
@@ -140,7 +139,7 @@ export default function HomeScreen() {
       if (!result.canceled && result.assets[0]) {
         await processAndGenerateFlashcards(result.assets[0].uri, result.assets[0].mimeType);
       }
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to pick file. Please try again.");
     }
   };
@@ -331,7 +330,7 @@ export default function HomeScreen() {
           <PostTestDialog
             visible={showPostTestDialog}
             deckName={decks.find((d) => d.id === currentPostTestDeck)?.name || ""}
-            onTestResponse={(response) => { setTestResponse(response); setShowPostTestDialog(false); setShowLongTermDialog(true); }}
+            onTestResponse={() => { setShowPostTestDialog(false); setShowLongTermDialog(true); }}
             onClose={() => { setShowPostTestDialog(false); markPostTestDialogShown(currentPostTestDeck); setCurrentPostTestDeck(null); }}
           />
           <LongTermDialog

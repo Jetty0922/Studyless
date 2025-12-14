@@ -1,52 +1,70 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { format, subDays, startOfWeek, differenceInDays } from "date-fns";
 import { useTheme } from "../utils/useTheme";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation, CompositeNavigationProp } from "@react-navigation/native";
 import { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
-import { MainTabsParamList } from "../navigation/RootNavigator";
-import { CompositeNavigationProp } from "@react-navigation/native";
+import { MainTabsParamList, RootStackParamList } from "../navigation/RootNavigator";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../navigation/RootNavigator";
 import { GlassCard } from "../components/ui";
+import { getMastery } from "../utils/spacedRepetition";
 
 type NavigationProp = CompositeNavigationProp<BottomTabNavigationProp<MainTabsParamList, "Progress">, NativeStackNavigationProp<RootStackParamList>>;
 type TestFilter = "all" | "upcoming" | "finished";
 
 export default function ProgressScreen() {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const flashcards = useFlashcardStore((s) => s.flashcards);
   const decks = useFlashcardStore((s) => s.decks);
-  const syncWithSupabase = useFlashcardStore((s) => s.syncWithSupabase);
   const [testFilter, setTestFilter] = useState<TestFilter>("upcoming");
 
-  // Sync data when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      syncWithSupabase();
-    }, [syncWithSupabase])
-  );
+  // Helper to get review date - supports both modes
+  // For cards without last_review (old TEST_PREP), use nextReviewDate minus 1 day as approximation
+  const getReviewDate = (card: typeof flashcards[0]): Date | null => {
+    if (card.last_review) {
+      return new Date(card.last_review);
+    }
+    // Fallback for old TEST_PREP cards: if reviewed (has lastResponse), estimate from nextReviewDate
+    if (card.lastResponse && card.nextReviewDate) {
+      // Approximate: review happened before next review date
+      // Use today if nextReviewDate is in the future (recently reviewed)
+      const nextReview = new Date(card.nextReviewDate);
+      return nextReview > new Date() ? new Date() : nextReview;
+    }
+    return null;
+  };
 
   const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-  const cardsThisWeek = flashcards.filter((card) => card.last_review && new Date(card.last_review) >= weekStart).length;
+  const cardsThisWeek = flashcards.filter((card) => {
+    const reviewDate = getReviewDate(card);
+    return reviewDate && reviewDate >= weekStart;
+  }).length;
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const date = subDays(new Date(), 6 - i);
-    const dayCards = flashcards.filter((card) => card.last_review && new Date(card.last_review).toDateString() === date.toDateString()).length;
+    const dayCards = flashcards.filter((card) => {
+      const reviewDate = getReviewDate(card);
+      return reviewDate && reviewDate.toDateString() === date.toDateString();
+    }).length;
     return { date, count: dayCards, label: format(date, "EEE").substring(0, 3) };
   });
 
   const maxDayCards = Math.max(...weekDays.map((d) => d.count), 1);
   const avgDaily = cardsThisWeek > 0 ? Math.round(cardsThisWeek / 7) : 0;
 
+  // Use getMastery for LONG_TERM cards (considers state, stability, lapses)
+  const getCardMastery = (card: typeof flashcards[0]) => {
+    return card.mode === "LONG_TERM" ? getMastery(card) : (card.mastery || "LEARNING");
+  };
+
   const categorizedCards = flashcards.reduce((acc, card) => {
-    if (card.mastery === "STRUGGLING") acc.struggling.push(card);
-    else if (card.mastery === "MASTERED") acc.mastered.push(card);
+    const mastery = getCardMastery(card);
+    if (mastery === "STRUGGLING") acc.struggling.push(card);
+    else if (mastery === "MASTERED") acc.mastered.push(card);
     else acc.learning.push(card);
     return acc;
   }, { mastered: [] as typeof flashcards, learning: [] as typeof flashcards, struggling: [] as typeof flashcards });
@@ -58,7 +76,7 @@ export default function ProgressScreen() {
 
   const allTestsWithDetails = decks.filter((d) => d.testDate).map((deck) => {
     const deckCards = flashcards.filter((card) => card.deckId === deck.id);
-    const masteredCount = deckCards.filter((c) => c.mastery === "MASTERED").length;
+    const masteredCount = deckCards.filter((c) => getCardMastery(c) === "MASTERED").length;
     const readyPercentage = deckCards.length > 0 ? Math.round((masteredCount / deckCards.length) * 100) : 0;
     const daysLeft = differenceInDays(new Date(deck.testDate!), new Date());
     const isPast = new Date(deck.testDate!) < new Date();
@@ -73,7 +91,7 @@ export default function ProgressScreen() {
 
   const deckStats = decks.map((deck) => {
     const deckCards = flashcards.filter((card) => card.deckId === deck.id);
-    const masteredCount = deckCards.filter((c) => c.mastery === "MASTERED").length;
+    const masteredCount = deckCards.filter((c) => getCardMastery(c) === "MASTERED").length;
     const masteredPct = deckCards.length > 0 ? Math.round((masteredCount / deckCards.length) * 100) : 0;
     const hasTest = deck.testDate && new Date(deck.testDate) > new Date();
     const nextTest = hasTest ? { date: deck.testDate!, daysLeft: differenceInDays(new Date(deck.testDate!), new Date()) } : null;

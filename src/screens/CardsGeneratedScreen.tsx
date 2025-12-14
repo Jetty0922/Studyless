@@ -21,7 +21,7 @@ type CardsGeneratedScreenProps = {
 };
 
 export default function CardsGeneratedScreen({ navigation, route }: CardsGeneratedScreenProps) {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const { cards: initialCards, sourceUri, type } = route.params;
   
   // Editable cards state
@@ -103,7 +103,7 @@ export default function CardsGeneratedScreen({ navigation, route }: CardsGenerat
       }));
       await addFlashcardsBatch(deckId, finalCards);
       await completeOnboarding();
-    } catch (error: any) {
+    } catch {
       Alert.alert("Error", "Failed to create deck");
       setIsSaving(false);
     }

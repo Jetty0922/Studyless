@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Animated } from "react-native";
+import { View, Text, Pressable, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Animated } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,7 +13,7 @@ type QuickSetupScreenProps = {
 };
 
 export default function QuickSetupScreen({ navigation }: QuickSetupScreenProps) {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const [name, setName] = useState("");
   const [school, setSchool] = useState("");
 
@@ -33,10 +33,14 @@ export default function QuickSetupScreen({ navigation }: QuickSetupScreenProps) 
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim]);
 
   const handleContinue = () => {
     // Save user data to store (will add later)
+    navigation.navigate("NotificationsSetup");
+  };
+
+  const handleSkip = () => {
     navigation.navigate("NotificationsSetup");
   };
 
@@ -75,7 +79,7 @@ export default function QuickSetupScreen({ navigation }: QuickSetupScreenProps) 
                 <Ionicons name="person-circle" size={48} color="#667eea" />
               </View>
               <Text style={[styles.title, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>
-                Let's get to know you
+                Let’s get to know you
               </Text>
               <Text style={[styles.subtitle, { color: isDark ? "#94a3b8" : "#64748b" }]}>
                 This helps us personalize your experience
@@ -94,7 +98,7 @@ export default function QuickSetupScreen({ navigation }: QuickSetupScreenProps) 
             >
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: isDark ? "#e2e8f0" : "#374151" }]}>
-                  What's your name?
+                  What’s your name?
                 </Text>
                 <GradientInput
                   value={name}
@@ -138,6 +142,12 @@ export default function QuickSetupScreen({ navigation }: QuickSetupScreenProps) 
                 size="large"
                 style={styles.button}
               />
+              
+              <Pressable onPress={handleSkip} style={styles.skipButton}>
+                <Text style={[styles.skipText, { color: isDark ? "#64748b" : "#94a3b8" }]}>
+                  Skip for now
+                </Text>
+              </Pressable>
             </Animated.View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -208,5 +218,13 @@ const styles = StyleSheet.create({
   },
   button: {
     width: "100%",
+  },
+  skipButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+  },
+  skipText: {
+    fontSize: 15,
+    textAlign: "center",
   },
 });

@@ -15,7 +15,7 @@ type FirstActionScreenProps = {
 };
 
 export default function FirstActionScreen({ navigation }: FirstActionScreenProps) {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const completeOnboarding = useFlashcardStore((s) => s.completeOnboarding);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -34,7 +34,7 @@ export default function FirstActionScreen({ navigation }: FirstActionScreenProps
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim]);
 
   const handleScanNow = () => {
     navigation.navigate("CameraScreen");
@@ -112,7 +112,7 @@ export default function FirstActionScreen({ navigation }: FirstActionScreenProps
             }}
           >
             <Text style={[styles.description, { color: isDark ? "#94a3b8" : "#64748b" }]}>
-              Got notes from class today? Let's turn them into flashcards with AI!
+              Got notes from class today? Let’s turn them into flashcards with AI!
             </Text>
           </Animated.View>
 
@@ -155,7 +155,7 @@ export default function FirstActionScreen({ navigation }: FirstActionScreenProps
 
             <Pressable onPress={handleDoLater} style={styles.skipButton}>
               <Text style={[styles.skipText, { color: isDark ? "#64748b" : "#94a3b8" }]}>
-                I'll do this later
+                I’ll do this later
               </Text>
             </Pressable>
           </Animated.View>

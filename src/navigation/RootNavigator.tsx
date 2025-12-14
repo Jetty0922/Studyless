@@ -39,7 +39,7 @@ export type RootStackParamList = {
   DeckSettings: { deckId: string };
   AccountSettings: undefined;
   DeckSelection: {
-    flashcards: Array<{ front: string; back: string }>;
+    flashcards: { front: string; back: string }[];
     sourceUri?: string;
   };
   Review: { cards: string[] };
@@ -63,7 +63,7 @@ export type OnboardingStackParamList = {
   CardsGenerated: {
     sourceUri: string;
     cardCount: number;
-    cards: Array<{ front: string; back: string }>;
+    cards: { front: string; back: string }[];
     type: string;
   };
   MainTabs: undefined; // Used as transition
@@ -209,7 +209,8 @@ export default function RootNavigator() {
             component={AccountSettingsScreen}
             options={{
               title: "Account",
-              headerShown: false,
+              headerShown: true,
+              headerBackTitle: "Back",
             }}
           />
           <Stack.Screen

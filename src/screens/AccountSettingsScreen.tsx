@@ -10,7 +10,7 @@ import { useTheme } from "../utils/useTheme";
 import { GlassCard } from "../components/ui";
 
 export default function AccountSettingsScreen() {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const navigation = useNavigation();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);

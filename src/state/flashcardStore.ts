@@ -14,10 +14,11 @@ import {
   calculateLongTermReview,
   generateSchedule,
   getDueCards,
-  getInitialFSRSParams,
   isFinalReviewDay,
-  isTestDay,
-  applyDateCap
+  applyDateCap,
+  // New clean LONG_TERM helpers
+  createNewLongTermCard,
+  convertCardToLongTerm,
 } from "../utils/spacedRepetition";
 import { startOfDay } from "date-fns";
 
@@ -217,14 +218,19 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             deck.cardCount = deckCards.length;
           });
 
-          // 5. Transform stats
+          // 5. Transform stats - MERGE with local to avoid losing review counts
+          const localStats = get().stats;
+          const remoteCardsReviewedToday = profile?.cards_reviewed_today || 0;
+          const remoteTotalCardsReviewed = profile?.total_cards_reviewed || 0;
+          
+          // Use the higher value between local and remote to avoid data loss
           const transformedStats: StudyStats = {
-            currentStreak: profile?.current_streak || 0,
-            longestStreak: profile?.longest_streak || 0,
-            totalCardsReviewed: profile?.total_cards_reviewed || 0,
-            dailyGoal: profile?.daily_goal || 20,
-            cardsReviewedToday: profile?.cards_reviewed_today || 0,
-            lastStudyDate: profile?.last_study_date ? new Date(profile.last_study_date) : undefined,
+            currentStreak: Math.max(profile?.current_streak || 0, localStats.currentStreak),
+            longestStreak: Math.max(profile?.longest_streak || 0, localStats.longestStreak),
+            totalCardsReviewed: Math.max(remoteTotalCardsReviewed, localStats.totalCardsReviewed),
+            dailyGoal: profile?.daily_goal || localStats.dailyGoal || 20,
+            cardsReviewedToday: Math.max(remoteCardsReviewedToday, localStats.cardsReviewedToday),
+            lastStudyDate: profile?.last_study_date ? new Date(profile.last_study_date) : localStats.lastStudyDate,
           };
 
           // 6. Update local state
@@ -496,8 +502,8 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         }
 
         if (deck.mode === "LONG_TERM") {
-          // FSRS Initialization for New Card
-          // state: 0 (New), stability: 0, difficulty: 0 (or default)
+          // Use centralized LONG_TERM card factory
+          const longTermFields = createNewLongTermCard();
           newCard = {
             id: generateId(),
             deckId,
@@ -506,15 +512,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             imageUri: finalImageUri,
             fileUri: finalFileUri,
             createdAt: now,
-            
-            mode: "LONG_TERM",
-            nextReviewDate: now, // Due immediately
-            
-            state: 0, // New
-            stability: 0,
-            difficulty: 0, 
-            last_review: undefined,
-            
+            ...longTermFields,
             againCount: 0,
           };
         } else {
@@ -609,6 +607,8 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             let newCard: Flashcard;
 
             if (deck.mode === "LONG_TERM") {
+                // Use centralized LONG_TERM card factory
+                const longTermFields = createNewLongTermCard();
                 newCard = {
                     id,
                     deckId,
@@ -617,11 +617,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
                     imageUri: finalImageUri,
                     fileUri: finalFileUri,
                     createdAt: now,
-                    mode: "LONG_TERM",
-                    nextReviewDate: now,
-                    state: 0,
-                    stability: 0,
-                    difficulty: 0,
+                    ...longTermFields,
                     againCount: 0,
                 };
             } else {
@@ -771,7 +767,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             cardsReviewedToday: state.stats.cardsReviewedToday + 1,
           },
         });
-        
+
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
            // Update flashcard
@@ -827,50 +823,12 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         const state = get();
         const now = new Date();
 
+        // Use centralized conversion helper
         const updatedFlashcards = state.flashcards.map((f) => {
             if (f.deckId !== deckId) return f;
-
-            // Initialize FSRS params based on mastery
-            const initialParams = getInitialFSRSParams(f.mastery);
             
-            // Critical Edge Case (The Gap)
-            // Set card.last_review = card.testDate
-            // This is tricky if testDate is null or in future. 
-            // Assuming testDate is in the past (test passed).
-            // If testDate is not set, fallback to createdAt or now.
-            const gapReviewDate = f.testDate || f.createdAt;
-
-            // We effectively create a card that was reviewed at `gapReviewDate` with `initialParams`.
-            // And we want to find the NEXT due date from NOW.
-            // We can simulate a review happening NOW or just set nextReviewDate?
-            // Spec says: "Run fsrs.schedule() once to determine the immediate next due date."
-            // But we are initializing. 
-            
-            // Let's construct a "simulated" card state
-            // And set nextReviewDate based on stability.
-            // Stability is in days. 
-            // If stability is 15, and we treat it as reviewed just now? 
-            // Or reviewed at gapReviewDate?
-            
-            // If we set last_review = gapReviewDate
-            // And stability = 15
-            // Next due = gapReviewDate + 15 days.
-            // If that date is in the past, it's due now.
-            
-            const nextDue = new Date(new Date(gapReviewDate).getTime() + initialParams.stability * 24 * 60 * 60 * 1000);
-
-            return {
-              ...f,
-              mode: "LONG_TERM" as const,
-              testDate: undefined,
-              schedule: undefined,
-              currentStep: undefined,
-              mastery: undefined,
-              
-              ...initialParams, // state, stability, difficulty
-              last_review: gapReviewDate,
-              nextReviewDate: nextDue,
-            };
+            const updates = convertCardToLongTerm(f, now);
+            return { ...f, ...updates };
         });
 
         set({
@@ -901,18 +859,18 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
            // Bulk update cards
            const deckCards = updatedFlashcards.filter(f => f.deckId === deckId);
            
-           // Determine efficient way to bulk update. 
-           // For now, loop or RPC. Loop is safe for stability.
            for (const f of deckCards) {
                await supabase.from('flashcards').update({
                    mode: "LONG_TERM",
                    test_date: null,
                    schedule: null,
                    current_step: null,
-                   mastery: null,
+                   mastery: f.mastery,
                    state: f.state,
                    stability: f.stability,
                    difficulty: f.difficulty,
+                   lapses: f.lapses,
+                   reps: f.reps,
                    last_review: f.last_review 
                      ? (f.last_review instanceof Date ? f.last_review.toISOString() : new Date(f.last_review).toISOString())
                      : null,

@@ -45,7 +45,7 @@ export default function CameraScanIllustration({ size = 200, animated = true }: 
         }),
       ])
     ).start();
-  }, [animated]);
+  }, [animated, floatAnim, scanAnim]);
 
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>

@@ -71,7 +71,7 @@ function PreviewCard({ card, index, isDark, onEdit, onDelete }: PreviewCardProps
 }
 
 export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps) {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const { flashcards: generatedFlashcards, sourceUri } = route.params;
 
@@ -82,7 +82,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newDeckName, setNewDeckName] = useState("");
   const [selectedColor, setSelectedColor] = useState(COLORS[0].value);
-  const [selectedEmoji, setSelectedEmoji] = useState(EMOJIS[0]);
+  const [selectedEmoji] = useState(EMOJIS[0]);
   const [deckMode, setDeckMode] = useState<"TEST_PREP" | "LONG_TERM">("LONG_TERM");
   const defaultTestDate = React.useMemo(() => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), []);
   const [testDate, setTestDate] = useState<Date | undefined>(defaultTestDate);
@@ -104,7 +104,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
         text: "OK", 
         onPress: () => navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] })
       }]);
-    } catch (error) { Alert.alert("Error", "Failed to add flashcards to deck."); } finally { setIsAdding(false); }
+    } catch { Alert.alert("Error", "Failed to add flashcards to deck."); } finally { setIsAdding(false); }
   };
 
   const handleCreateDeck = async () => {
@@ -112,7 +112,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
     if (deckMode === "TEST_PREP" && !testDate) { Alert.alert("Error", "Please select a test date for Test Prep mode"); return; }
     try {
       setIsAdding(true);
-      const deckId = await addDeck(newDeckName, selectedColor, "📚", deckMode === "TEST_PREP" ? testDate : undefined, deckMode);
+      const deckId = await addDeck(newDeckName, selectedColor, selectedEmoji, deckMode === "TEST_PREP" ? testDate : undefined, deckMode);
       await addFlashcardsBatch(deckId, flashcardsList.map((card) => ({ front: card.front, back: card.back, imageUri: sourceUri })));
       setShowCreateModal(false);
       const resetDate = defaultTestDate;
@@ -122,7 +122,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
         text: "OK", 
         onPress: () => navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] })
       }]);
-    } catch (error) { Alert.alert("Error", "Failed to create deck."); } finally { setIsAdding(false); }
+    } catch { Alert.alert("Error", "Failed to create deck."); } finally { setIsAdding(false); }
   };
 
   const handleDateChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
@@ -250,7 +250,10 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
           </View>
         </View>
 
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        <ScrollView 
+          style={styles.scrollView} 
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.content}>
             {/* Generated Flashcards Preview */}
             <View style={styles.previewHeader}>

@@ -23,7 +23,7 @@ export const uploadFile = async (uri: string, bucket: string, path: string) => {
       encoding: FileSystem.EncodingType.Base64,
     });
     
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from(bucket)
       .upload(path, decode(base64), {
         contentType: 'image/jpeg', // Default to jpeg for now, should detect

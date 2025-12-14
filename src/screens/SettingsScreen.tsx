@@ -28,7 +28,7 @@ export default function SettingsScreen() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const { colors, isDark, toggleTheme } = useTheme();
+  const { isDark, toggleTheme } = useTheme();
 
   useEffect(() => { loadReminderTime(); }, []);
 
@@ -91,7 +91,7 @@ export default function SettingsScreen() {
       const path = `${FileSystem.documentDirectory}studyless-export-${Date.now()}.json`;
       await FileSystem.writeAsStringAsync(path, json, { encoding: FileSystem.EncodingType.UTF8 });
       await Share.share({ url: path, title: 'StudyLess Data Export' });
-    } catch (error) { Alert.alert("Export Failed", "Could not export data."); }
+    } catch { Alert.alert("Export Failed", "Could not export data."); }
   };
 
   const handleDeleteAccount = async () => {

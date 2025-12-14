@@ -12,6 +12,7 @@ import { useTheme } from "../utils/useTheme";
 import { SortMenu } from "../components/SortMenu";
 import { GlassCard } from "../components/ui";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { getMastery } from "../utils/spacedRepetition";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type DeckSortOption = "testDate" | "name" | "progress";
@@ -20,7 +21,7 @@ type TabMode = "TEST_PREP" | "LONG_TERM";
 const DECK_COLORS = ["#667eea", "#8b5cf6", "#ec4899", "#f97316", "#10b981", "#ef4444"];
 
 export default function DecksListScreen() {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const decks = useFlashcardStore((s) => s.decks);
   const flashcards = useFlashcardStore((s) => s.flashcards);
@@ -37,16 +38,19 @@ export default function DecksListScreen() {
   const [testDate, setTestDate] = useState<Date | undefined>(defaultTestDate);
   const [pickerDate, setPickerDate] = useState<Date>(defaultTestDate);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   const deckStats = decks.map((deck) => {
     const deckCards = flashcards.filter((card) => card.deckId === deck.id);
-    const masteredCount = deckCards.filter((c) => c.mastery === "MASTERED").length;
+    const isLongTerm = deck.mode === "LONG_TERM";
+    // Use getMastery for LONG_TERM cards (considers state, stability, lapses)
+    const getCardMastery = (c: typeof deckCards[0]) => isLongTerm ? getMastery(c) : (c.mastery || "LEARNING");
+    const masteredCount = deckCards.filter((c) => getCardMastery(c) === "MASTERED").length;
     const masteredPct = deckCards.length > 0 ? Math.round((masteredCount / deckCards.length) * 100) : 0;
-    const learningCount = deckCards.filter((c) => c.mastery === "LEARNING").length;
-    const strugglingCount = deckCards.filter((c) => c.mastery === "STRUGGLING").length;
+    const learningCount = deckCards.filter((c) => getCardMastery(c) === "LEARNING").length;
+    const strugglingCount = deckCards.filter((c) => getCardMastery(c) === "STRUGGLING").length;
     const hasTest = deck.testDate && new Date(deck.testDate) > new Date();
     const testPassed = deck.testDate && new Date(deck.testDate) < new Date();
-    const isLongTerm = deck.mode === "LONG_TERM";
     const isArchived = deck.status === "completed";
     const daysLeft = deck.testDate ? differenceInDays(new Date(deck.testDate), new Date()) : null;
 
@@ -91,8 +95,10 @@ export default function DecksListScreen() {
   };
 
   const handleCreateDeck = async () => {
+    if (isCreating) return; // Prevent duplicate submissions
     if (!newDeckName.trim()) { Alert.alert("Error", "Deck name cannot be empty"); return; }
     if (deckMode === "TEST_PREP" && !testDate) { Alert.alert("Error", "Please set a test date"); return; }
+    setIsCreating(true);
     try {
       const deckId = await addDeck(newDeckName.trim(), selectedColor, undefined, deckMode === "TEST_PREP" ? testDate : undefined, deckMode);
       const resetDate = defaultTestDate;
@@ -103,7 +109,7 @@ export default function DecksListScreen() {
       setPickerDate(resetDate);
       setShowCreateModal(false);
       navigation.navigate("Deck", { deckId });
-    } catch (error) { Alert.alert("Error", "Failed to create deck"); }
+    } catch (error) { console.error(error); Alert.alert("Error", "Failed to create deck"); } finally { setIsCreating(false); }
   };
 
   const handleDateChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
@@ -290,7 +296,7 @@ export default function DecksListScreen() {
           <View style={[styles.modalHeader, { borderBottomColor: isDark ? "#334155" : "#e2e8f0" }]}>
             <Pressable onPress={() => setShowCreateModal(false)}><Text style={{ color: "#667eea", fontSize: 17 }}>Cancel</Text></Pressable>
             <Text style={[styles.modalTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>New Deck</Text>
-            <Pressable onPress={handleCreateDeck}><Text style={{ color: "#667eea", fontSize: 17, fontWeight: "600" }}>Create</Text></Pressable>
+            <Pressable onPress={handleCreateDeck} disabled={isCreating}><Text style={{ color: isCreating ? "#94a3b8" : "#667eea", fontSize: 17, fontWeight: "600" }}>{isCreating ? "Creating..." : "Create"}</Text></Pressable>
           </View>
           <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.inputLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>Deck Name</Text>

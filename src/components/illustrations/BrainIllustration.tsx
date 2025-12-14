@@ -45,7 +45,7 @@ export default function BrainIllustration({ size = 280, animated = true }: Brain
         }),
       ])
     ).start();
-  }, [animated]);
+  }, [animated, glowAnim, pulseAnim]);
 
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>

@@ -10,6 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.studyless.app",
+      "buildNumber": "3",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "This app needs access to the camera to scan study materials and take photos of notes.",
@@ -37,9 +38,10 @@
       "edgeToEdgeEnabled": true,
       "package": "com.studyless.app"
     },
+    "owner": "mingun09",
     "extra": {
       "eas": {
-        "projectId": "b348b5dc-c0d3-4c5c-a42a-071a9c5c6ded"
+        "projectId": "e5f46b64-4abe-410e-90fe-4bcfae1a57b6"
       }
     }
   }

@@ -8,7 +8,7 @@ import { useTheme } from "../utils/useTheme";
 import { GlassCard } from "../components/ui";
 
 export default function StatsScreen() {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
   const stats = useFlashcardStore((s) => s.stats);
   const flashcards = useFlashcardStore((s) => s.flashcards);
 

@@ -36,7 +36,7 @@ export default function CreateAccountScreen({ navigation }: CreateAccountScreenP
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim]);
 
   const handleCreateAccount = async () => {
     if (!email || !password || !confirmPassword) {
@@ -120,6 +120,7 @@ export default function CreateAccountScreen({ navigation }: CreateAccountScreenP
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            scrollEventThrottle={1000}
           >
             {/* Logo and Header */}
             <Animated.View
