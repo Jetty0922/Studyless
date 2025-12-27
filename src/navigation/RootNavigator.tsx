@@ -10,6 +10,7 @@ import DeckScreen from "../screens/DeckScreen";
 import DeckSettingsScreen from "../screens/DeckSettingsScreen";
 import DeckSelectionScreen from "../screens/DeckSelectionScreen";
 import ReviewScreen from "../screens/ReviewScreen";
+import OptionalReviewScreen from "../screens/OptionalReviewScreen";
 import ProgressScreen from "../screens/ProgressScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import AccountSettingsScreen from "../screens/AccountSettingsScreen";
@@ -43,6 +44,7 @@ export type RootStackParamList = {
     sourceUri?: string;
   };
   Review: { cards: string[] };
+  OptionalReview: { deckId: string };
   LogicSimulator: undefined;
 };
 
@@ -227,6 +229,15 @@ export default function RootNavigator() {
             component={ReviewScreen}
             options={{
               title: "Review",
+              headerShown: false,
+              presentation: "fullScreenModal",
+            }}
+          />
+          <Stack.Screen
+            name="OptionalReview"
+            component={OptionalReviewScreen}
+            options={{
+              title: "Optional Review",
               headerShown: false,
               presentation: "fullScreenModal",
             }}
