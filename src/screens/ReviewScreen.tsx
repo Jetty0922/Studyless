@@ -106,6 +106,13 @@ export default function ReviewScreen() {
       reviewFlashcard(currentCard.id, rating, reviewTimeMs);
       const updatedCards = [...sessionCards];
       const cardToRequeue = updatedCards.splice(currentIndex, 1)[0];
+      
+      // Manually apply the learning step reset for AGAIN
+      // (reviewFlashcard is async, so card hasn't updated yet in session)
+      if (rating === "AGAIN") {
+        cardToRequeue.learningStep = 0;
+      }
+      
       updatedCards.push(cardToRequeue); // Add to END of session
       setSessionCards(updatedCards);
       setShowAnswer(false);
