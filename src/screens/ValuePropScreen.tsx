@@ -62,7 +62,7 @@ export default function ValuePropScreen({ navigation }: ValuePropScreenProps) {
             ]}
           >
             <View style={styles.iconCircle}>
-              <Ionicons name="sparkles" size={60} color="#ffffff" style={styles.sparkleIcon} />
+              <Ionicons name="flash" size={60} color="#ffffff" style={styles.sparkleIcon} />
             </View>
           </Animated.View>
 

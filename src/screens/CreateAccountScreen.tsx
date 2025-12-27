@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, Pressable, KeyboardAvoidingView, Platform, ScrollView, Alert, StyleSheet, Animated, Linking } from "react-native";
+import { View, Text, Pressable, KeyboardAvoidingView, Platform, ScrollView, Alert, StyleSheet, Animated, Linking, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,7 @@ import { OnboardingStackParamList } from "../navigation/RootNavigator";
 import { supabase } from "../lib/supabase";
 import { GradientButton, GradientInput } from "../components/ui";
 import { useTheme } from "../utils/useTheme";
+import { trackUserSignedUp, identifyUser } from "../services/analytics";
 
 type CreateAccountScreenProps = {
   navigation: NativeStackNavigationProp<OnboardingStackParamList, "CreateAccount">;
@@ -71,6 +72,12 @@ export default function CreateAccountScreen({ navigation }: CreateAccountScreenP
         return;
       }
 
+      // Track successful signup
+      if (user) {
+        trackUserSignedUp('email');
+        identifyUser(user.id);
+      }
+
       Alert.alert(
         "Check Your Email",
         "We've sent you a confirmation link. Please verify your email to continue.",
@@ -93,11 +100,11 @@ export default function CreateAccountScreen({ navigation }: CreateAccountScreenP
   };
 
   const openTerms = () => {
-    Linking.openURL("https://example.com/terms");
+    Linking.openURL("https://raw.githubusercontent.com/Jetty0922/studyless-legal/main/TERMS_OF_SERVICE.md");
   };
 
   const openPrivacy = () => {
-    Linking.openURL("https://example.com/privacy");
+    Linking.openURL("https://raw.githubusercontent.com/Jetty0922/studyless-legal/main/PRIVACY_POLICY.md");
   };
 
   return (
@@ -133,7 +140,11 @@ export default function CreateAccountScreen({ navigation }: CreateAccountScreenP
               ]}
             >
               <View style={styles.logoCircle}>
-                <Ionicons name="school" size={36} color="#ffffff" />
+                <Image 
+                  source={require('../../assets/icon.png')} 
+                  style={{ width: 50, height: 50 }} 
+                  resizeMode="contain" 
+                />
               </View>
               <Text style={[styles.welcomeText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>
                 Create your account

@@ -1,0 +1,21 @@
+Computer Science - Data Structures
+
+Algorithm:
+A finite sequence of well-defined instructions to solve a specific problem or perform a computation. Algorithms must be unambiguous and have clear termination conditions.
+
+Big O Notation:
+A mathematical notation used to describe the limiting behavior of a function, typically used to classify algorithms by how their run time or space requirements grow as the input size grows.
+
+Binary Search Tree (BST):
+A node-based binary tree data structure where each node has at most two children. The left subtree contains only nodes with keys less than the parent node, and the right subtree contains only nodes with keys greater than the parent node.
+
+Hash Table:
+A data structure that implements an associative array, mapping keys to values. It uses a hash function to compute an index into an array of buckets, providing average-case constant-time complexity for insertions, deletions, and lookups.
+
+Stack:
+A linear data structure that follows the Last-In-First-Out (LIFO) principle. Elements can only be added or removed from the top of the stack. Common operations include push, pop, and peek.
+
+Recursion:
+A method of solving problems where a function calls itself as a subroutine. This allows the function to be repeated several times with different inputs, breaking down complex problems into simpler sub-problems.
+
+

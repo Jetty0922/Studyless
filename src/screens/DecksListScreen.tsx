@@ -14,6 +14,7 @@ import { GlassCard } from "../components/ui";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { getMastery } from "../utils/spacedRepetition";
 
+// Force reload - getMastery function now available
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type DeckSortOption = "testDate" | "name" | "progress";
 type TabMode = "TEST_PREP" | "LONG_TERM";

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, Pressable, KeyboardAvoidingView, Platform, ScrollView, Alert, StyleSheet, Animated } from "react-native";
+import { View, Text, Pressable, KeyboardAvoidingView, Platform, ScrollView, Alert, StyleSheet, Animated, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -105,7 +105,11 @@ export default function SignInScreen({ navigation }: SignInScreenProps) {
               ]}
             >
               <View style={styles.logoCircle}>
-                <Ionicons name="school" size={40} color="#ffffff" />
+                <Image 
+                  source={require('../../assets/icon.png')} 
+                  style={{ width: 56, height: 56 }} 
+                  resizeMode="contain" 
+                />
               </View>
               <Text style={[styles.appName, { color: isDark ? "#ffffff" : "#1e293b" }]}>
                 Studyless

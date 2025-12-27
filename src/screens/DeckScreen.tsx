@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { View, Text, Pressable, ScrollView, Alert, TextInput, Modal, Keyboard, TouchableWithoutFeedback, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -6,11 +6,12 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
-import { differenceInDays, format } from "date-fns";
+import { differenceInDays, format, isSameDay } from "date-fns";
 import { SortMenu } from "../components/SortMenu";
 import { useTheme } from "../utils/useTheme";
 import { GlassCard } from "../components/ui";
-import { getMastery } from "../utils/spacedRepetition";
+import { getDueCards } from "../utils/spacedRepetition";
+import { useSettingsStore } from "../state/settingsStore";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type DeckRouteProp = RouteProp<RootStackParamList, "Deck">;
@@ -22,7 +23,6 @@ export default function DeckScreen() {
 
   const decks = useFlashcardStore((s) => s.decks);
   const flashcards = useFlashcardStore((s) => s.flashcards);
-  const getDueCards = useFlashcardStore((s) => s.getDueCards);
   const addFlashcard = useFlashcardStore((s) => s.addFlashcard);
   const updateFlashcard = useFlashcardStore((s) => s.updateFlashcard);
   const deleteFlashcard = useFlashcardStore((s) => s.deleteFlashcard);
@@ -66,13 +66,27 @@ export default function DeckScreen() {
     }
   }, [navigation, deck, deckId, selectionMode, isDark]);
 
+  // Use the proper getDueCards function for correct INTRADAY/INTERDAY handling
+  const settings = useSettingsStore((s) => s.settings);
+  const allDecks = decks;
+  
+  const dueCards = useMemo(() => {
+    if (!deck) return [];
+    const allDue = getDueCards(deckCards, [deck], settings.testDayLockoutEnabled);
+    return allDue;
+  }, [deckCards, deck, settings.testDayLockoutEnabled]);
+  
+  const dueCardsCount = dueCards.length;
+  const isTestDay = deck?.mode === 'TEST_PREP' && deck?.testDate && isSameDay(new Date(), new Date(deck.testDate));
+
   const handleStartReview = () => {
-    const dueCards = getDueCards(deck?.id);
-    if (dueCards.length === 0) { 
-      Alert.alert("All Caught Up!", "You have reviewed all cards. Come back later!"); 
-      return; 
-    }
+    if (deckCards.length === 0) { Alert.alert("No Cards", "Please create some flashcards first."); return; }
+    if (dueCards.length === 0) { Alert.alert("All Caught Up!", "You have reviewed all cards. Come back later!"); return; }
     navigation.navigate("Review", { cards: dueCards.map((c) => c.id) });
+  };
+  
+  const handleOptionalReview = () => {
+    navigation.navigate("OptionalReview", { deckId });
   };
 
   const handleCreateCard = () => {
@@ -130,28 +144,16 @@ export default function DeckScreen() {
     );
   }
 
-  const dueCardsCount = getDueCards(deck.id).length;
-  // Use unified getMastery for LONG_TERM cards (considers state, stability, lapses)
-  const masteredCount = deckCards.filter((c) => 
-    deck.mode === "LONG_TERM" ? getMastery(c) === "MASTERED" : c.mastery === "MASTERED"
-  ).length;
-  const strugglingCount = deckCards.filter((c) => 
-    deck.mode === "LONG_TERM" ? getMastery(c) === "STRUGGLING" : c.mastery === "STRUGGLING"
-  ).length;
-  const learningCount = deckCards.filter((c) => 
-    deck.mode === "LONG_TERM" ? getMastery(c) === "LEARNING" : c.mastery === "LEARNING"
-  ).length;
+  // dueCardsCount is now calculated via useMemo above with proper learning step handling
+  const masteredCount = deckCards.filter((c) => c.mastery === "MASTERED").length;
+  const strugglingCount = deckCards.filter((c) => c.mastery === "STRUGGLING").length;
+  const learningCount = deckCards.filter((c) => c.mastery === "LEARNING").length;
   const daysUntilTest = deck.testDate ? differenceInDays(new Date(deck.testDate), new Date()) : null;
-  const isTestFinished = deck.mode === "TEST_PREP" && daysUntilTest !== null && daysUntilTest <= 1;
+  const isTestFinished = deck.mode === "TEST_PREP" && daysUntilTest !== null && daysUntilTest < 0;
 
   const sortedCards = [...deckCards].sort((a, b) => {
     if (sortBy === "date") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    else if (sortBy === "mastery") { 
-      const masteryOrder = { STRUGGLING: 0, LEARNING: 1, MASTERED: 2 };
-      const aMastery = deck.mode === "LONG_TERM" ? getMastery(a) : (a.mastery || "LEARNING");
-      const bMastery = deck.mode === "LONG_TERM" ? getMastery(b) : (b.mastery || "LEARNING");
-      return masteryOrder[aMastery] - masteryOrder[bMastery];
-    }
+    else if (sortBy === "mastery") { const masteryOrder = { STRUGGLING: 0, LEARNING: 1, MASTERED: 2 }; return masteryOrder[a.mastery || "LEARNING"] - masteryOrder[b.mastery || "LEARNING"]; }
     else return a.front.localeCompare(b.front);
   });
 
@@ -177,17 +179,39 @@ export default function DeckScreen() {
           </View>
         )}
 
-        {/* Test Completed Banner */}
-        {deck.mode === "TEST_PREP" && deck.testDate && daysUntilTest !== null && daysUntilTest <= 1 && (
+        {/* Test Day Banner */}
+        {isTestDay && settings.testDayLockoutEnabled && (
           <View style={[styles.warningBanner, { backgroundColor: "#8b5cf6" }]}>
             <View style={styles.warningContent}>
               <View style={{ flex: 1, marginRight: 16 }}>
-                <Text style={styles.warningTitle}>{daysUntilTest === 1 ? "Final Review Day" : "Test Date Reached!"}</Text>
-                <Text style={styles.warningSubtitle}>{daysUntilTest === 1 ? "Switch to Long Term mode if done cramming." : "Switch to Long Term mode for efficient memory."}</Text>
+                <Text style={styles.warningTitle}>Test Day!</Text>
+                <Text style={styles.warningSubtitle}>Scheduled reviews are paused. Use Practice Mode if you want to study.</Text>
+              </View>
+            </View>
+          </View>
+        )}
+        {/* Test Completed Banner (after test day) */}
+        {deck.mode === "TEST_PREP" && deck.testDate && daysUntilTest !== null && daysUntilTest < 0 && (
+          <View style={[styles.warningBanner, { backgroundColor: "#8b5cf6" }]}>
+            <View style={styles.warningContent}>
+              <View style={{ flex: 1, marginRight: 16 }}>
+                <Text style={styles.warningTitle}>Test Date Passed!</Text>
+                <Text style={styles.warningSubtitle}>Switch to Long Term mode for continued learning.</Text>
               </View>
               <Pressable onPress={handleSwitchToLongTerm} style={styles.warningButton}>
                 <Text style={{ color: "#8b5cf6", fontWeight: "600" }}>Switch</Text>
               </Pressable>
+            </View>
+          </View>
+        )}
+        {/* Final Review Day (1 day before test) */}
+        {deck.mode === "TEST_PREP" && deck.testDate && daysUntilTest === 1 && (
+          <View style={[styles.warningBanner, { backgroundColor: "#f97316" }]}>
+            <View style={styles.warningContent}>
+              <View style={{ flex: 1, marginRight: 16 }}>
+                <Text style={styles.warningTitle}>Final Review Day</Text>
+                <Text style={styles.warningSubtitle}>Last chance for scheduled reviews before your test!</Text>
+              </View>
             </View>
           </View>
         )}
@@ -272,8 +296,7 @@ export default function DeckScreen() {
                 {/* Cards List */}
                 {sortedCards.map((card) => {
                   const isSelected = selectedCards.has(card.id);
-                  const cardMastery = deck.mode === "LONG_TERM" ? getMastery(card) : (card.mastery || "LEARNING");
-                  const masteryColor = cardMastery === "MASTERED" ? "#10b981" : cardMastery === "LEARNING" ? "#667eea" : "#f97316";
+                  const masteryColor = card.mastery === "MASTERED" ? "#10b981" : card.mastery === "LEARNING" ? "#667eea" : "#f97316";
                   return (
                     <Pressable key={card.id} onPress={() => selectionMode ? toggleCardSelection(card.id) : openEditModal(card)}>
                       <GlassCard style={isSelected ? { ...styles.cardItem, backgroundColor: isDark ? "rgba(102, 126, 234, 0.15)" : "rgba(102, 126, 234, 0.1)" } : styles.cardItem}>
@@ -287,7 +310,7 @@ export default function DeckScreen() {
                             <Text style={[styles.cardBack, { color: isDark ? "#e2e8f0" : "#374151" }]}>{card.back}</Text>
                             <View style={[styles.cardFooter, { borderTopColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]}>
                               <Text style={[styles.cardDate, { color: isDark ? "#64748b" : "#94a3b8" }]}>{format(new Date(card.createdAt), "MMM d, yyyy")}</Text>
-                              <Text style={[styles.cardMastery, { color: masteryColor }]}>{cardMastery}</Text>
+                              <Text style={[styles.cardMastery, { color: masteryColor }]}>{card.mastery || "LEARNING"}</Text>
                             </View>
                           </View>
                         </View>
@@ -310,10 +333,24 @@ export default function DeckScreen() {
             </Pressable>
           ) : (
             <>
-              {!isTestFinished && dueCardsCount > 0 && (
+              {/* Test Day: Show Optional Review instead of normal review */}
+              {isTestDay && settings.testDayLockoutEnabled && deckCards.length > 0 && (
+                <Pressable onPress={handleOptionalReview} style={styles.primaryButton}>
+                  <LinearGradient colors={["#8b5cf6", "#a855f7"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+                  <Ionicons name="infinite" size={20} color="white" /><Text style={styles.actionButtonText}>Practice (Optional)</Text>
+                </Pressable>
+              )}
+              {/* Normal: Show Start Review */}
+              {!isTestFinished && !isTestDay && deckCards.length > 0 && (
                 <Pressable onPress={handleStartReview} style={styles.primaryButton}>
                   <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
-                  <Ionicons name="play" size={20} color="white" /><Text style={styles.actionButtonText}>Start Review ({dueCardsCount})</Text>
+                  <Ionicons name="play" size={20} color="white" /><Text style={styles.actionButtonText}>Start Review{dueCardsCount > 0 && ` (${dueCardsCount})`}</Text>
+                </Pressable>
+              )}
+              {/* Optional Review button (always available when there are cards) */}
+              {deckCards.length > 0 && !isTestDay && (
+                <Pressable onPress={handleOptionalReview} style={[styles.secondaryButton, { backgroundColor: isDark ? "rgba(139,92,246,0.1)" : "rgba(139,92,246,0.08)", borderColor: isDark ? "rgba(139,92,246,0.3)" : "rgba(139,92,246,0.2)" }]}>
+                  <Ionicons name="infinite" size={20} color="#8b5cf6" /><Text style={[styles.secondaryButtonText, { color: "#8b5cf6" }]}>Practice All Cards</Text>
                 </Pressable>
               )}
               <Pressable onPress={() => setShowCreateModal(true)} style={[styles.secondaryButton, { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)", borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>

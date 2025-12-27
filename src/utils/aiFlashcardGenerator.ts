@@ -85,24 +85,178 @@ function parseFlashcardsFromResponse(content: string): GeneratedFlashcard[] {
 }
 
 /**
- * Common Prompt Template
+ * Content categories for specialized flashcard generation
  */
-const SYSTEM_PROMPT = `You are an expert educator creating study flashcards. 
+export type ContentCategory = 'vocabulary' | 'math' | 'science' | 'history' | 'language' | 'definitions' | 'general';
+
+/**
+ * Specialized Prompt Templates for different content categories
+ */
+const CATEGORY_PROMPTS: Record<ContentCategory, string> = {
+  vocabulary: `You are an expert vocabulary educator creating minimal vocabulary flashcards.
+
+CRITICAL OUTPUT RULES:
+1. Output ONLY a JSON array with "front" and "back" keys
+2. One word per card
+3. Keep it minimal - no extra context
+
+VOCABULARY CARD FORMAT:
+- Front: Single word ONLY (no articles, no context)
+- Back: Primary definition/meaning ONLY (1 sentence max)
+- NO example sentences
+- NO additional context
+- NO pronunciation guides
+
+Extract ALL vocabulary words from the material. Focus on clarity and brevity.`,
+
+  math: `You are an expert math educator creating problem-solving flashcards.
+
+CRITICAL OUTPUT RULES:
+1. Output ONLY a JSON array with "front" and "back" keys
+2. One problem or concept per card
+3. Include step-by-step solutions
+
+MATH CARD FORMAT:
+- Front: Problem statement, formula name, or concept question
+- Back: Solution with clear steps, or formula with explanation of when to use it
+- For problems: Show work step-by-step
+- For formulas: Include the formula and its application
+- For concepts: Clear explanation with examples when helpful
+
+Extract ALL mathematical concepts, formulas, and representative problems.`,
+
+  science: `You are an expert science educator creating concept-focused flashcards.
+
+CRITICAL OUTPUT RULES:
+1. Output ONLY a JSON array with "front" and "back" keys
+2. One concept, principle, or process per card
+3. Focus on understanding, not memorization
+
+SCIENCE CARD FORMAT:
+- Front: Concept question, principle name, or process to explain
+- Back: Clear explanation with key terms highlighted
+- Include cause-effect relationships
+- Mention real-world applications when relevant
+- For processes: Break into logical steps
+- Keep answers concise but complete (2-3 sentences)
+
+Extract ALL key scientific concepts, principles, laws, and processes.`,
+
+  history: `You are an expert history educator creating context-rich flashcards.
+
+CRITICAL OUTPUT RULES:
+1. Output ONLY a JSON array with "front" and "back" keys
+2. One event, person, or period per card
+3. Focus on significance and connections
+
+HISTORY CARD FORMAT:
+- Front: Event name, historical figure, or period
+- Back: Significance, key dates, and historical context
+- Include cause-effect relationships
+- Mention impact and consequences
+- Connect events to broader themes
+- Keep answers focused (2-3 sentences)
+
+Extract ALL important events, figures, dates, and their historical significance.`,
+
+  language: `You are an expert language educator creating practical language-learning flashcards.
+
+CRITICAL OUTPUT RULES:
+1. Output ONLY a JSON array with "front" and "back" keys
+2. One phrase or sentence per card
+3. Include practical usage context
+
+LANGUAGE CARD FORMAT:
+- Front: Phrase or sentence in the target language
+- Back: Translation and brief usage context
+- Include pronunciation notes if helpful
+- Mention formality level (formal/informal) when relevant
+- For grammar: Include the rule and example
+- Keep translations natural and conversational
+
+Extract ALL useful phrases, idioms, and grammatical structures.`,
+
+  definitions: `You are an expert academic educator creating precise definition flashcards.
+
+CRITICAL OUTPUT RULES:
+1. Output ONLY a JSON array with "front" and "back" keys
+2. One term or concept per card
+3. Use formal, academic language
+
+DEFINITION CARD FORMAT:
+- Front: Technical term or academic concept
+- Back: Formal definition and practical application
+- Include field-specific terminology
+- Mention category or classification when relevant
+- For complex terms: Break down components
+- Keep definitions precise (2-3 sentences)
+
+Extract ALL technical terms, academic concepts, and specialized vocabulary.`,
+
+  general: `You are an expert educator creating comprehensive study flashcards.
 
 CRITICAL OUTPUT RULES:
 1. Output ONLY a JSON array with "front" and "back" keys
 2. One focused concept per card
-3. Keep answers concise (1-3 sentences max)
+3. Adapt to the content type
 
-CONTENT GUIDELINES:
-- Extract ALL key concepts, definitions, formulas, and important facts
-- Adapt your approach to the subject matter (math, history, science, etc.)
-- For formulas/equations: include the formula and when to use it
-- For definitions: include the term and its meaning
-- For processes: break into logical steps if complex
-- Prioritize information that appears emphasized or repeated in the source
+GENERAL CARD FORMAT:
+- Front: Key concept, question, or term
+- Back: Clear, comprehensive answer
+- Adapt format based on content (definitions, facts, processes, etc.)
+- Include relevant details and context
+- Keep answers concise but complete (2-3 sentences)
 
-Create enough cards to cover the material thoroughly, but avoid redundancy.`;
+Extract ALL key information, concepts, and important facts from the material.`,
+};
+
+/**
+ * Detects the content category using AI analysis
+ */
+async function detectContentCategory(
+  contentPreview: string,
+  mimeType?: string,
+  base64Data?: string
+): Promise<ContentCategory> {
+  const detectionPrompt = `Analyze this content and classify it into ONE of these categories:
+- vocabulary: Lists of words with definitions, vocabulary lists, word meanings
+- math: Mathematical problems, equations, formulas, calculations, proofs
+- science: Scientific concepts, experiments, biology, chemistry, physics principles
+- history: Historical events, dates, timelines, historical figures, periods
+- language: Foreign language phrases, translations, grammar rules, language learning
+- definitions: Academic terms, technical definitions, glossary entries, formal concepts
+- general: Mixed content or content that doesn't fit other categories
+
+Respond with ONLY the category name, nothing else.
+
+Content preview:
+${contentPreview}`;
+
+  try {
+    const category = await generateWithGemini(detectionPrompt, mimeType, base64Data);
+    const cleanCategory = category.trim().toLowerCase() as ContentCategory;
+    
+    // Validate category
+    const validCategories: ContentCategory[] = ['vocabulary', 'math', 'science', 'history', 'language', 'definitions', 'general'];
+    if (validCategories.includes(cleanCategory)) {
+      console.log(`Detected content category: ${cleanCategory}`);
+      return cleanCategory;
+    }
+    
+    console.log(`Unknown category "${cleanCategory}", defaulting to general`);
+    return 'general';
+  } catch (error) {
+    console.error("Error detecting category, defaulting to general:", error);
+    return 'general';
+  }
+}
+
+/**
+ * Gets the appropriate prompt for a given category
+ */
+function getPromptForCategory(category: ContentCategory): string {
+  return CATEGORY_PROMPTS[category] || CATEGORY_PROMPTS.general;
+}
 
 /**
  * Generates flashcards from an image using Gemini
@@ -113,7 +267,16 @@ export async function generateFlashcardsFromImage(
   try {
     const base64Image = await prepareImageForAI(imageUri);
     
-    const prompt = `${SYSTEM_PROMPT}\n\nAnalyze this image and create flashcards.`;
+    // Phase 1: Detect content category
+    const category = await detectContentCategory(
+      "Analyze this image content",
+      "image/jpeg",
+      base64Image
+    );
+    
+    // Phase 2: Generate flashcards with specialized prompt
+    const categoryPrompt = getPromptForCategory(category);
+    const prompt = `${categoryPrompt}\n\nAnalyze this image and create flashcards.`;
     
     const responseText = await generateWithGemini(prompt, "image/jpeg", base64Image);
     return parseFlashcardsFromResponse(responseText);
@@ -130,7 +293,14 @@ export async function generateFlashcardsFromText(
   text: string
 ): Promise<GeneratedFlashcard[]> {
   try {
-    const prompt = `${SYSTEM_PROMPT}\n\nMaterial:\n${text}`;
+    // Phase 1: Detect content category
+    const contentPreview = text.substring(0, 1000); // Use first 1000 chars for detection
+    const category = await detectContentCategory(contentPreview);
+    
+    // Phase 2: Generate flashcards with specialized prompt
+    const categoryPrompt = getPromptForCategory(category);
+    const prompt = `${categoryPrompt}\n\nMaterial:\n${text}`;
+    
     const responseText = await generateWithGemini(prompt);
     return parseFlashcardsFromResponse(responseText);
   } catch (error) {
@@ -150,7 +320,16 @@ export async function generateFlashcardsFromPDF(
       encoding: FileSystem.EncodingType.Base64,
     });
     
-    const prompt = `${SYSTEM_PROMPT}\n\nAnalyze this PDF document and create flashcards.`;
+    // Phase 1: Detect content category
+    const category = await detectContentCategory(
+      "Analyze this PDF document content",
+      "application/pdf",
+      base64Data
+    );
+    
+    // Phase 2: Generate flashcards with specialized prompt
+    const categoryPrompt = getPromptForCategory(category);
+    const prompt = `${categoryPrompt}\n\nAnalyze this PDF document and create flashcards.`;
     
     const responseText = await generateWithGemini(prompt, "application/pdf", base64Data);
     return parseFlashcardsFromResponse(responseText);

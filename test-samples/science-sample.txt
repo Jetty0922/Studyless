@@ -1,0 +1,19 @@
+Biology - Cell Structure and Function
+
+Cell Membrane:
+The cell membrane is a selectively permeable barrier that controls what enters and exits the cell. It consists of a phospholipid bilayer with embedded proteins.
+
+Mitochondria:
+Often called the "powerhouse of the cell," mitochondria produce ATP through cellular respiration. They have their own DNA and double membrane structure.
+
+Photosynthesis:
+Process: 6CO₂ + 6H₂O + light energy → C₆H₁₂O₆ + 6O₂
+Occurs in chloroplasts of plant cells. Light-dependent reactions occur in thylakoids, while the Calvin cycle occurs in the stroma.
+
+Osmosis:
+The movement of water molecules across a selectively permeable membrane from an area of lower solute concentration to higher solute concentration. This is a passive transport process.
+
+DNA Replication:
+The process by which DNA makes a copy of itself during cell division. It is semiconservative, meaning each new DNA molecule contains one original strand and one new strand.
+
+

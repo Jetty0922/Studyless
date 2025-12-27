@@ -132,17 +132,26 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
                   image_uri: card.imageUri,
                   file_uri: card.fileUri,
                   mode: card.mode,
-                  test_date: card.testDate ? card.testDate.toISOString() : null,
+                  test_date: card.testDate ? (card.testDate instanceof Date ? card.testDate.toISOString() : new Date(card.testDate).toISOString()) : null,
                   next_review_date: card.nextReviewDate instanceof Date ? card.nextReviewDate.toISOString() : new Date(card.nextReviewDate).toISOString(),
                   schedule: card.schedule,
                   current_step: card.currentStep,
                   mastery: card.mastery,
+                  // Learning phase fields
+                  learning_state: card.learningState,
+                  learning_step: card.learningStep,
+                  learning_steps: card.learningSteps,
+                  learning_card_type: card.learningCardType,
+                  // FSRS fields
                   state: card.state,
                   stability: card.stability,
                   difficulty: card.difficulty,
                   reps: card.reps,
                   lapses: card.lapses,
-                  last_review: card.last_review ? (card.last_review instanceof Date ? card.last_review.toISOString() : new Date(card.last_review).toISOString()) : null,
+                  last_review: card.lastReview ? (card.lastReview instanceof Date ? card.lastReview.toISOString() : new Date(card.lastReview).toISOString()) : null,
+                  // Leech fields
+                  is_leech: card.isLeech,
+                  leech_suspended: card.leechSuspended,
                   response_history: card.responseHistory,
                   again_count: card.againCount || 0,
                   created_at: card.createdAt instanceof Date ? card.createdAt.toISOString() : new Date(card.createdAt).toISOString(),
@@ -198,18 +207,30 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
               mode: c.mode || cardDeck?.mode || 'TEST_PREP',
               testDate: cardTestDate,
               
+              // Learning phase fields (CRITICAL for learning steps)
+              // Default to 'GRADUATED' for legacy cards that don't have learning_state
+              // This ensures old cards work correctly, while new cards start in LEARNING
+              learningState: c.learning_state || 'GRADUATED',
+              learningStep: c.learning_step ?? 0,
+              learningSteps: c.learning_steps || LEARNING_STEPS,
+              learningCardType: c.learning_card_type,
+              
               // TEST_PREP fields
               schedule: c.schedule,
               currentStep: c.current_step ?? 0,
               mastery: c.mastery || 'LEARNING',
               
-              // FSRS fields for LONG_TERM
-              state: c.state,
-              stability: c.stability,
-              difficulty: c.difficulty,
-              reps: c.reps,
-              lapses: c.lapses,
-              last_review: c.last_review ? new Date(c.last_review) : undefined,
+              // FSRS fields
+              state: c.state ?? 2, // Default to Review state for legacy cards
+              stability: c.stability ?? 1,
+              difficulty: c.difficulty ?? 5,
+              reps: c.reps ?? 0,
+              lapses: c.lapses ?? 0,
+              lastReview: c.last_review ? new Date(c.last_review) : undefined,
+              
+              // Leech fields
+              isLeech: c.is_leech ?? false,
+              leechSuspended: c.leech_suspended ?? false,
               
               responseHistory: c.response_history,
               againCount: c.again_count || 0,

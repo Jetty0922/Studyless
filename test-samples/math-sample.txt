@@ -1,0 +1,25 @@
+Mathematics - Quadratic Equations
+
+Quadratic Formula:
+x = (-b ± √(b² - 4ac)) / 2a
+
+Use this formula to solve equations in the form ax² + bx + c = 0
+
+Example Problem 1:
+Solve: 2x² + 5x - 3 = 0
+Solution: a=2, b=5, c=-3
+x = (-5 ± √(25 + 24)) / 4
+x = (-5 ± 7) / 4
+x = 0.5 or x = -3
+
+Discriminant:
+b² - 4ac determines the nature of roots
+- If positive: two real roots
+- If zero: one real root
+- If negative: two complex roots
+
+Vertex Form:
+y = a(x - h)² + k
+Where (h, k) is the vertex of the parabola
+
+
