@@ -1291,17 +1291,23 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         const phaseConfig = getExamPhase(testDate);
         const { phase, targetRetention, daysLeft } = phaseConfig;
         
+        console.log('[recalculateTestPrepSchedules] Phase:', phase, 'daysLeft:', daysLeft, 'targetR:', targetRetention);
+        
         // Recalculate nextReviewDate for all cards based on current phase
         const updatedFlashcards = state.flashcards.map((card) => {
           if (card.deckId !== deckId) return card;
-          if (card.learningState !== 'GRADUATED') return card; // Skip learning cards
+          
+          // Skip cards currently in intraday learning (they have their own timing)
+          if (card.learningState === 'LEARNING' || card.learningState === 'RELEARNING') {
+            if (card.learningCardType === 'INTRADAY') return card;
+          }
           
           const stability = card.stability || 1;
           let newInterval: number;
           
           if (phase === 'CRAM' || phase === 'EXAM_DAY') {
             // CRAM: Schedule for tomorrow or today
-            newInterval = Math.min(1, daysLeft);
+            newInterval = Math.min(1, Math.max(0, daysLeft));
           } else if (phase === 'CONSOLIDATION') {
             newInterval = Math.min(
               Math.max(1, calculateOptimalReviewTime(stability, targetRetention)),
@@ -1316,6 +1322,8 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
           }
           
           const newDueDate = addDays(today, Math.round(newInterval));
+          
+          console.log('[recalculateTestPrepSchedules] Card', card.id.slice(0,8), 'stability:', stability, 'interval:', newInterval);
           
           return {
             ...card,
