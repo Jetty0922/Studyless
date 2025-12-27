@@ -32,6 +32,7 @@ export default function DeckSettingsScreen() {
   const [editedName, setEditedName] = useState(deck?.name || "");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(deck?.testDate ? new Date(deck.testDate) : new Date());
+  const [pendingModeSwitch, setPendingModeSwitch] = useState<"TEST_PREP" | null>(null);
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
@@ -63,16 +64,40 @@ export default function DeckSettingsScreen() {
     if (date) {
       setSelectedDate(date);
       if (Platform.OS === "android") {
-        Alert.alert("Change Test Date", "This will recalculate review schedules for all cards. Continue?", [
-          { text: "Cancel", style: "cancel" },
-          { text: "Change", onPress: () => updateDeck(deckId, { testDate: date }) },
-        ]);
+        if (pendingModeSwitch === "TEST_PREP") {
+          // Android: immediately switch mode with selected date
+          updateDeck(deckId, { 
+            mode: "TEST_PREP", 
+            testDate: date 
+          });
+          setPendingModeSwitch(null);
+        } else {
+          Alert.alert("Change Test Date", "This will recalculate review schedules for all cards. Continue?", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Change", onPress: () => updateDeck(deckId, { testDate: date }) },
+          ]);
+        }
       }
+    } else if (Platform.OS === "android") {
+      // User cancelled on Android
+      setPendingModeSwitch(null);
     }
   };
 
   const handleConfirmDateChange = () => {
     setShowDatePicker(false);
+    
+    // Check if this is for a mode switch
+    if (pendingModeSwitch === "TEST_PREP") {
+      updateDeck(deckId, { 
+        mode: "TEST_PREP", 
+        testDate: selectedDate 
+      });
+      setPendingModeSwitch(null);
+      return;
+    }
+    
+    // Regular date change for existing TEST_PREP deck
     Alert.alert("Change Test Date", "This will recalculate review schedules for all cards. Continue?", [
       { text: "Cancel", style: "cancel" },
       { text: "Change", onPress: () => updateDeck(deckId, { testDate: selectedDate }) },
@@ -80,13 +105,33 @@ export default function DeckSettingsScreen() {
   };
 
   const handleSwitchMode = (newMode: "TEST_PREP" | "LONG_TERM") => {
-    const message = newMode === "LONG_TERM"
-      ? "WARNING: This is irreversible. All progress and steps will be reset. Review cards will be scheduled every 2 weeks. Continue?"
-      : "WARNING: This is irreversible. All progress and steps will be reset. Continue?";
-    Alert.alert(`Switch to ${newMode === "LONG_TERM" ? "Long-term" : "Test Prep"} Mode`, message, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Switch", style: "destructive", onPress: () => toggleLongTermMode(deckId, newMode) },
-    ]);
+    if (newMode === "LONG_TERM") {
+      Alert.alert(
+        "Switch to Long-term Mode",
+        "WARNING: This is irreversible. All progress and steps will be reset. Review cards will be scheduled based on FSRS. Continue?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Switch", style: "destructive", onPress: () => toggleLongTermMode(deckId, newMode) },
+        ]
+      );
+    } else {
+      // Switching to TEST_PREP - need to select a test date first
+      Alert.alert(
+        "Switch to Test Prep Mode",
+        "You'll need to set a test date. All progress will be recalculated based on the test date. Continue?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Select Date", 
+            onPress: () => {
+              setPendingModeSwitch("TEST_PREP");
+              setSelectedDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)); // Default to 2 weeks from now
+              setShowDatePicker(true);
+            }
+          },
+        ]
+      );
+    }
   };
 
   const handleDeleteDeck = () => {
@@ -205,19 +250,39 @@ export default function DeckSettingsScreen() {
           visible={showDatePicker} 
           animationType="slide" 
           transparent={false}
-          onRequestClose={() => setShowDatePicker(false)}
+          onRequestClose={() => {
+            setShowDatePicker(false);
+            setPendingModeSwitch(null);
+          }}
         >
           <View style={{ flex: 1, backgroundColor: isDark ? "#1e293b" : "#ffffff" }}>
             <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
               <View style={[styles.datePickerHeader, { borderBottomColor: isDark ? "#334155" : "#e2e8f0" }]}>
-                <Pressable onPress={() => setShowDatePicker(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Pressable 
+                  onPress={() => {
+                    setShowDatePicker(false);
+                    setPendingModeSwitch(null);
+                  }} 
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
                   <Text style={styles.datePickerButton}>Cancel</Text>
                 </Pressable>
-                <Text style={[styles.datePickerTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Test Date</Text>
+                <Text style={[styles.datePickerTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>
+                  {pendingModeSwitch ? "Select Test Date" : "Test Date"}
+                </Text>
                 <Pressable onPress={handleConfirmDateChange} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  <Text style={[styles.datePickerButton, { fontWeight: "600" }]}>Done</Text>
+                  <Text style={[styles.datePickerButton, { fontWeight: "600" }]}>
+                    {pendingModeSwitch ? "Switch" : "Done"}
+                  </Text>
                 </Pressable>
               </View>
+              {pendingModeSwitch && (
+                <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
+                  <Text style={{ color: isDark ? "#94a3b8" : "#64748b", fontSize: 14, textAlign: "center" }}>
+                    Select when your test is. Cards will be scheduled to maximize retention on test day.
+                  </Text>
+                </View>
+              )}
               <View style={styles.datePickerContainer}>
                 <DateTimePicker 
                   value={selectedDate} 
