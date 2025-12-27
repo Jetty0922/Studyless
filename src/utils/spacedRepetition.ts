@@ -1,397 +1,960 @@
+/**
+ * Spaced Repetition Scheduling System
+ * 
+ * This module implements the complete scheduling logic for StudyLess:
+ * - Learning Steps (Anki-style)
+ * - Day Boundary handling (4 AM cutoff)
+ * - TEST_PREP mode (ladder-based)
+ * - LONG_TERM mode (FSRS-based)
+ * - Fuzz functions
+ * - Leech detection
+ * - Mode switching
+ * - Due card detection
+ */
+
 import {
   addDays,
-  startOfDay,
+  startOfDay as dateStartOfDay,
   differenceInDays,
   isAfter,
   subDays,
   isSameDay,
 } from "date-fns";
-import { Card as FSRSCard, FSRS, Rating, generatorParameters } from "ts-fsrs";
-import { Flashcard, ReviewRating, Deck } from "../types/flashcard";
+import { Card as FSRSCard, FSRS, Rating as FSRSRating, generatorParameters, State } from "ts-fsrs";
+import { 
+  Flashcard, 
+  ReviewRating, 
+  Deck, 
+  LearningState, 
+  LearningCardType,
+  MasteryLevel,
+  FSRSState,
+  Rating,
+  ScheduleWarning
+} from "../types/flashcard";
 
 // ============================================================================
-// PART 2: TEST PREP LOGIC (The Ladder)
+// PART 1: CONSTANTS
 // ============================================================================
-
-const STANDARD_LADDER = [0, 1, 3, 7, 14, 21, 28, 35, 45, 60];
 
 /**
- * Helper Function: The Brick Wall Logic
- * No date can ever go past TestDate - 1.
+ * Default learning steps for NEW cards
+ * [900, 3600] = 15 minutes, then 1 hour (in SECONDS)
+ */
+export const LEARNING_STEPS = [900, 3600];
+
+/**
+ * Relearning steps for LAPSED cards
+ * [600] = 10 minutes (in SECONDS)
+ */
+export const RELEARNING_STEPS = [600];
+
+/**
+ * Early review buffer for INTRADAY learning cards
+ * Cards can be shown up to 20 minutes early if nothing else to study
+ */
+export const EARLY_REVIEW_BUFFER_SECONDS = 1200;
+
+/**
+ * Day boundary hour (4 AM)
+ * All INTERDAY cards normalize to 4 AM
+ */
+export const DAY_BOUNDARY_HOUR = 4;
+
+/**
+ * Standard ladder for TEST_PREP mode (intervals in DAYS)
+ */
+export const STANDARD_LADDER = [0, 1, 3, 7, 14, 21, 28, 35, 45, 60];
+
+/**
+ * Mastery threshold for TEST_PREP
+ * Cards at step >= 8 are considered MASTERED
+ */
+export const MASTERY_STEP_THRESHOLD = 8;
+
+/**
+ * Minimum interval (in DAYS) before applying fuzz
+ * UNIFIED for both TEST_PREP and LONG_TERM modes
+ */
+export const FUZZ_MIN_INTERVAL_DAYS = 2;
+
+/**
+ * Leech threshold - card is marked as leech when lapses >= 6
+ */
+export const LEECH_THRESHOLD = 6;
+
+/**
+ * Mastery thresholds for LONG_TERM mode
+ */
+export const MASTERY_THRESHOLDS = {
+  stabilityForMastered: 21,  // 3 weeks
+  lapsesForStruggling: 2,
+};
+
+/**
+ * Minimum intervals for LONG_TERM (FSRS) mode (in milliseconds)
+ */
+export const LONG_TERM_MIN_INTERVALS = {
+  again: 60000,     // 1 minute
+  hard: 300000,     // 5 minutes
+  good: 600000,     // 10 minutes
+  easy: 0           // No minimum
+};
+
+/**
+ * Default FSRS parameters (19 weights for FSRS-5)
+ */
+export const DEFAULT_FSRS_PARAMETERS = [
+  0.4072, 1.1829, 3.1262, 15.4722, 7.2102,
+  0.5316, 1.0651, 0.0234, 1.616, 0.1544,
+  1.0824, 1.9813, 0.0953, 0.2975, 2.2042,
+  0.2407, 2.9466, 0.5034, 0.6567
+];
+
+// ============================================================================
+// PART 2: DATE/TIME UTILITIES
+// ============================================================================
+
+/**
+ * Get start of day normalized to DAY_BOUNDARY_HOUR (4 AM)
+ */
+export function startOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(DAY_BOUNDARY_HOUR, 0, 0, 0);
+  return d;
+}
+
+/**
+ * Add seconds to a date
+ */
+export function addSeconds(date: Date, seconds: number): Date {
+  return new Date(date.getTime() + seconds * 1000);
+}
+
+/**
+ * Calculate days between two dates
+ */
+export function daysBetween(date1: Date, date2: Date): number {
+  const diffTime = Math.abs(date2.getTime() - date1.getTime());
+  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * Calculate next review with day boundary handling
+ * 
+ * Rules:
+ * 1. If interval < 24h BUT crosses midnight → next day at 4 AM (INTERDAY)
+ * 2. If interval >= 24h → normalize to 4 AM of target day (INTERDAY)
+ * 3. If interval doesn't cross midnight → exact timestamp (INTRADAY)
+ */
+export function calculateNextReviewWithBoundary(
+  currentTime: Date,
+  intervalSeconds: number
+): { date: Date; cardType: LearningCardType } {
+  const intervalMs = intervalSeconds * 1000;
+  const nextReview = new Date(currentTime.getTime() + intervalMs);
+  
+  // Check if crosses day boundary
+  const currentDay = currentTime.getDate();
+  const nextDay = nextReview.getDate();
+  const crossesDayBoundary = currentDay !== nextDay || 
+    currentTime.getMonth() !== nextReview.getMonth() ||
+    currentTime.getFullYear() !== nextReview.getFullYear();
+  
+  // Check if less than 24 hours
+  const isLessThan24Hours = intervalSeconds < 86400;
+  
+  if (isLessThan24Hours && crossesDayBoundary) {
+    // Rule 1: Convert to next day at 4 AM
+    const tomorrow = addDays(currentTime, 1);
+    const normalized = startOfDay(tomorrow);
+    return { date: normalized, cardType: 'INTERDAY' };
+  } else if (!isLessThan24Hours) {
+    // Rule 2: Already >= 24 hours, normalize to 4 AM of target day
+    const normalized = startOfDay(nextReview);
+    return { date: normalized, cardType: 'INTERDAY' };
+  } else {
+    // Rule 3: Same day, exact timestamp
+    return { date: nextReview, cardType: 'INTRADAY' };
+  }
+}
+
+// ============================================================================
+// PART 3: FUZZ FUNCTIONS
+// ============================================================================
+
+/**
+ * Apply fuzz to TEST_PREP intervals
+ * < 2 days: No fuzz
+ * >= 2 days: ±25% of interval, minimum ±1 day
+ */
+export function applyFuzz(baseInterval: number): number {
+  if (baseInterval < FUZZ_MIN_INTERVAL_DAYS) {
+    return baseInterval;
+  }
+  
+  const fuzzRange = Math.max(1, Math.floor(baseInterval * 0.25));
+  const fuzz = Math.floor(Math.random() * (2 * fuzzRange + 1)) - fuzzRange;
+  
+  return Math.max(1, baseInterval + fuzz);
+}
+
+/**
+ * Apply fuzz to LONG_TERM (FSRS) intervals
+ * Graduated fuzz based on interval length:
+ * - 2-7 days: ±25% or ±1 day (whichever larger)
+ * - 7-30 days: ±15%
+ * - 30+ days: ±5%
+ */
+export function applyFSRSFuzz(interval: number): number {
+  if (interval < FUZZ_MIN_INTERVAL_DAYS) {
+    return interval;
+  }
+  
+  let fuzzRange: number;
+  
+  if (interval < 7) {
+    fuzzRange = Math.max(1, interval * 0.25);
+  } else if (interval < 30) {
+    fuzzRange = interval * 0.15;
+  } else {
+    fuzzRange = interval * 0.05;
+  }
+  
+  const fuzz = (Math.random() * 2 - 1) * fuzzRange;
+  return Math.max(1, Math.round(interval + fuzz));
+}
+
+// ============================================================================
+// PART 4: FSRS INITIALIZATION
+// ============================================================================
+
+/**
+ * Create FSRS instance with app configuration
+ */
+export function createFSRS(parameters: number[] = DEFAULT_FSRS_PARAMETERS): FSRS {
+  return new FSRS(generatorParameters({
+    w: parameters,
+    enable_fuzz: false,
+    maximum_interval: 365,
+    request_retention: 0.90
+  }));
+}
+
+// Default FSRS instance
+const fsrs = createFSRS();
+
+/**
+ * Find closest ladder step for a given stability
+ */
+export function findClosestLadderStep(stability: number, ladder: number[] = STANDARD_LADDER): number {
+  let closestStep = 0;
+  let minDiff = Math.abs(ladder[0] - stability);
+  
+  for (let i = 1; i < ladder.length; i++) {
+    const diff = Math.abs(ladder[i] - stability);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestStep = i;
+    }
+  }
+  
+  return closestStep;
+}
+
+// ============================================================================
+// PART 5: LEARNING PHASE LOGIC
+// ============================================================================
+
+/**
+ * Calculate next review for a card in LEARNING or RELEARNING phase
+ */
+export function calculateLearningReview(
+  card: Flashcard,
+  rating: ReviewRating,
+  now: Date = new Date()
+): Partial<Flashcard> {
+  const currentStep = card.learningStep || 0;
+  const steps = card.learningSteps || LEARNING_STEPS;
+  
+  // AGAIN: Reset to step 0
+  if (rating === "AGAIN") {
+    const intervalSeconds = steps[0];
+    const { date, cardType } = calculateNextReviewWithBoundary(now, intervalSeconds);
+    const newLapses = (card.lapses || 0) + 1;
+    
+    return {
+      learningStep: 0,
+      nextReviewDate: date,
+      learningCardType: cardType,
+      lapses: newLapses,
+      reps: (card.reps || 0) + 1,
+      lastReview: now,
+      lastResponse: rating,
+      isLeech: newLapses >= LEECH_THRESHOLD,
+      mastery: 'STRUGGLING'
+    };
+  }
+  
+  // HARD: Special logic based on current step
+  if (rating === "HARD") {
+    let intervalSeconds: number;
+    let newStep = currentStep;
+    
+    if (currentStep === 0 && steps.length > 1) {
+      // Average of first two steps
+      intervalSeconds = Math.round((steps[0] + steps[1]) / 2);
+    } else if (currentStep === 0 && steps.length === 1) {
+      // 1.5x current step (max: current + 1 day)
+      const oneDaySeconds = 86400;
+      intervalSeconds = Math.min(Math.round(steps[0] * 1.5), steps[0] + oneDaySeconds);
+    } else {
+      // Repeat current step
+      intervalSeconds = steps[currentStep];
+    }
+    
+    const { date, cardType } = calculateNextReviewWithBoundary(now, intervalSeconds);
+    
+    return {
+      learningStep: newStep,
+      nextReviewDate: date,
+      learningCardType: cardType,
+      reps: (card.reps || 0) + 1,
+      lastReview: now,
+      lastResponse: rating
+    };
+  }
+  
+  // GOOD: Advance to next step or graduate
+  if (rating === "GOOD") {
+    if (currentStep < steps.length - 1) {
+      // Advance to next step
+      const newStep = currentStep + 1;
+      const intervalSeconds = steps[newStep];
+      const { date, cardType } = calculateNextReviewWithBoundary(now, intervalSeconds);
+      
+      return {
+        learningStep: newStep,
+        nextReviewDate: date,
+        learningCardType: cardType,
+        reps: (card.reps || 0) + 1,
+        lastReview: now,
+        lastResponse: rating
+      };
+    } else {
+      // Graduate!
+      return graduateCard(card, rating, now);
+    }
+  }
+  
+  // EASY: Graduate immediately
+  if (rating === "EASY") {
+    return graduateCard(card, rating, now);
+  }
+  
+  throw new Error(`Invalid rating: ${rating}`);
+}
+
+/**
+ * Graduate a card from learning to review phase
+ */
+export function graduateCard(
+  card: Flashcard,
+  rating: ReviewRating,
+  now: Date = new Date()
+): Partial<Flashcard> {
+  // Build FSRS card for initial stability calculation
+  const fsrsCard: FSRSCard = {
+    due: now,
+    stability: card.stability || 0,
+    difficulty: card.difficulty || 5,
+    elapsed_days: 0,
+    scheduled_days: 0,
+    reps: card.reps || 0,
+    lapses: card.lapses || 0,
+    state: card.learningState === 'RELEARNING' ? State.Relearning : State.New,
+    last_review: undefined,
+    learning_steps: 0,
+  };
+  
+  // Call FSRS for initial stability
+  const fsrsRating = rating === "EASY" ? FSRSRating.Easy : FSRSRating.Good;
+  const schedulingCards = fsrs.repeat(fsrsCard, now);
+  const result = schedulingCards[fsrsRating].card;
+  
+  // NO FUZZ on graduation - first review should be predictable
+  const stabilityDays = result.stability;
+  
+  if (card.mode === 'TEST_PREP') {
+    // TEST_PREP: Map stability to ladder, freeze FSRS values
+    const schedule = card.schedule || STANDARD_LADDER;
+    const closestStep = findClosestLadderStep(stabilityDays, schedule);
+    const intervalDays = schedule[closestStep];
+    const nextReview = addDays(startOfDay(now), intervalDays);
+    
+    return {
+      learningState: 'GRADUATED',
+      learningStep: 0,
+      learningCardType: undefined,
+      currentStep: closestStep,
+      stability: stabilityDays,
+      difficulty: result.difficulty,
+      state: FSRSState.Review,
+      mastery: closestStep >= MASTERY_STEP_THRESHOLD ? 'MASTERED' : 'LEARNING',
+      nextReviewDate: nextReview,
+      reps: (card.reps || 0) + 1,
+      lastReview: now,
+      lastResponse: rating
+    };
+  } else {
+    // LONG_TERM: Use FSRS directly
+    const nextReview = addDays(now, stabilityDays);
+    
+    return {
+      learningState: 'GRADUATED',
+      learningStep: 0,
+      learningCardType: undefined,
+      stability: stabilityDays,
+      difficulty: result.difficulty,
+      state: FSRSState.Review,
+      mastery: stabilityDays >= MASTERY_THRESHOLDS.stabilityForMastered ? 'MASTERED' : 'LEARNING',
+      nextReviewDate: nextReview,
+      reps: (card.reps || 0) + 1,
+      lastReview: now,
+      lastResponse: rating
+    };
+  }
+}
+
+// ============================================================================
+// PART 6: TEST_PREP REVIEW LOGIC (GRADUATED CARDS)
+// ============================================================================
+
+/**
+ * Helper: Apply date cap (brick wall)
  */
 export const applyDateCap = (calculatedDate: Date, testDate: Date): Date => {
-  const wall = subDays(startOfDay(testDate), 1); // Day Before Test
+  const wall = subDays(dateStartOfDay(testDate), 1);
   return isAfter(calculatedDate, wall) ? wall : calculatedDate;
 };
 
 /**
- * Initialization Function: generateSchedule(testDate)
- * Logic:
- * - Calc daysLeft. If <= 1, return [0].
- * - Else, filter STANDARD_LADDER keeping only values < daysLeft.
+ * Generate schedule based on test date
  */
 export const generateSchedule = (testDate: Date): number[] => {
-  const today = startOfDay(new Date());
-  const daysLeft = differenceInDays(startOfDay(testDate), today);
+  const today = dateStartOfDay(new Date());
+  const daysLeft = differenceInDays(dateStartOfDay(testDate), today);
 
   if (daysLeft <= 1) {
     return [0];
   }
 
-  // Filter STANDARD_LADDER keeping only values < daysLeft
   return STANDARD_LADDER.filter((interval) => interval < daysLeft);
 };
 
 /**
- * Button Handler: calculateTestPrepReview(card, rating)
+ * Calculate next review for graduated TEST_PREP card
  */
-export const calculateTestPrepReview = (
+export function calculateTestPrepReview(
   card: Flashcard,
   rating: ReviewRating,
-  now?: Date // Optional time-travel for simulation
-): Partial<Flashcard> & { action?: 'REQUEUE', interval?: number } => {
-  const today = startOfDay(now || new Date());
-  
-  // Safety check for testDate - use a far future date as fallback
-  if (!card.testDate) {
-    console.error("Test Prep card missing testDate - using 30 day fallback", card.id);
-    // Fallback: treat as if test is 30 days from now
-    card = { ...card, testDate: addDays(today, 30) };
-  }
-
-  // Ensure testDate is a Date object (may be string from storage)
-  // At this point card.testDate is guaranteed to exist due to fallback above
-  const testDate = card.testDate instanceof Date 
-    ? card.testDate 
-    : new Date(card.testDate!);
-
-  // CASE: "AGAIN"
-  if (rating === "AGAIN") {
-    // Do not save to DB (handled by store returning early/not syncing).
-    // Return instructions for local session update only.
-    // In this implementation, we return the update object, and the store decides whether to persist.
-    // For AGAIN, the spec says "Requeue".
-    return {
-      action: 'REQUEUE',
-      lastResponse: "AGAIN",
-      againCount: (card.againCount || 0) + 1,
-      // We don't change nextReviewDate here because it's a session requeue?
-      // Or we set it to today? Usually today for immediate review.
-      nextReviewDate: today, 
-    };
-  }
-
-  // Common vars
-  const currentStep = card.currentStep || 0;
-  const schedule = card.schedule && card.schedule.length > 0 ? card.schedule : generateSchedule(testDate);
-  let newStep = currentStep;
-  let interval = 0;
-  let nextReviewDate = today;
-  let mastery: 'LEARNING' | 'STRUGGLING' | 'MASTERED' = card.mastery || 'LEARNING';
-
-  // CASE: "HARD" (Struggle)
-  if (rating === "HARD") {
-    newStep = Math.max(0, currentStep - 1); // Regress 1
-    interval = 1; // 1 day (Always)
-    nextReviewDate = applyDateCap(addDays(today, 1), testDate);
-    mastery = "STRUGGLING";
-  }
-  // CASE: "GOOD" (Standard)
-  else if (rating === "GOOD") {
-    newStep = currentStep + 1;
-    if (newStep >= schedule.length) {
-      // Check Ladder End
-      nextReviewDate = subDays(startOfDay(testDate), 1);
-      mastery = "MASTERED";
-    } else {
-      interval = schedule[newStep];
-      nextReviewDate = applyDateCap(addDays(today, interval), testDate);
-      mastery = "LEARNING";
-    }
-  }
-  // CASE: "EASY" (Skip)
-  else if (rating === "EASY") {
-    // Guardrail: IF card.currentStep < 2 -> Treat as "GOOD" (Block skip)
-    if (currentStep < 2) {
-        // Treat as GOOD
-        newStep = currentStep + 1;
-        if (newStep >= schedule.length) {
-            nextReviewDate = subDays(startOfDay(testDate), 1);
-            mastery = "MASTERED";
-        } else {
-            interval = schedule[newStep];
-            nextReviewDate = applyDateCap(addDays(today, interval), testDate);
-            mastery = "LEARNING";
-        }
-    } else {
-        // Actual EASY logic
-        newStep = currentStep + 2; // Skip 1
-        if (newStep >= schedule.length) {
-            nextReviewDate = subDays(startOfDay(testDate), 1);
-            mastery = "MASTERED";
-        } else {
-            interval = schedule[newStep];
-            nextReviewDate = applyDateCap(addDays(today, interval), testDate);
-            mastery = "LEARNING";
-        }
-    }
-  }
-
-  return {
-    currentStep: newStep,
-    nextReviewDate,
-    mastery,
-    lastResponse: rating,
-    last_review: today, // Track when this card was last reviewed
-    schedule, // Return schedule in case it was generated
-    interval // Return interval for simulator visibility
-  };
-};
-
-// ============================================================================
-// PART 3: LONG TERM LOGIC (FSRS Integration) - Clean Architecture
-// ============================================================================
-
-// --- CONFIGURATION ---
-// Minimum intervals to prevent cards from appearing due immediately after review
-// FSRS can schedule very short intervals (seconds) for new/learning cards
-export const LONG_TERM_MIN_INTERVALS = {
-  again: 0,                   // Immediately due (can continue session)
-  hard: 5 * 60 * 1000,       // 5 minutes
-  good: 10 * 60 * 1000,      // 10 minutes
-  easy: 0,                    // No minimum (FSRS usually gives days)
-} as const;
-
-// Default values for new LONG_TERM cards
-export const LONG_TERM_DEFAULTS = {
-  state: 0,        // New
-  stability: 0,    // FSRS calculates on first review
-  difficulty: 5,   // Average baseline (scale 1-10)
-  lapses: 0,
-  reps: 0,
-} as const;
-
-// Mastery thresholds
-const MASTERY_THRESHOLDS = {
-  stabilityForMastered: 21,  // 3 weeks stability = MASTERED
-  lapsesForStruggling: 2,    // 2+ lapses = STRUGGLING
-} as const;
-
-// Initialize FSRS with FSRS-5 weights, tuned for daily students
-const fsrs = new FSRS(generatorParameters({
-  maximum_interval: 365,   // Cap at 1 year
-  request_retention: 0.90, // 90% retention - balanced for daily study
-  w: [
-    0.4072, 1.1829, 3.1262, 15.4722, 7.2102, 0.5316, 1.0651, 0.0234,
-    1.616, 0.1544, 1.0824, 1.9813, 0.0953, 0.2975, 2.2042, 0.2407,
-    2.9466, 0.5034, 0.6567
-  ]
-}));
-
-// --- HELPER: Build FSRS Card Object ---
-// Centralized to eliminate duplication between review and preview functions
-function buildFSRSCard(card: Flashcard, now: Date): FSRSCard {
-  const dueDate = card.nextReviewDate instanceof Date 
-    ? card.nextReviewDate 
-    : new Date(card.nextReviewDate);
-  const lastReviewDate = card.last_review 
-    ? (card.last_review instanceof Date ? card.last_review : new Date(card.last_review))
-    : undefined;
-
-  return {
-    due: dueDate,
-    stability: card.stability ?? LONG_TERM_DEFAULTS.stability,
-    difficulty: card.difficulty ?? LONG_TERM_DEFAULTS.difficulty,
-    elapsed_days: lastReviewDate ? differenceInDays(now, lastReviewDate) : 0,
-    scheduled_days: lastReviewDate ? differenceInDays(dueDate, lastReviewDate) : 0,
-    reps: card.reps ?? LONG_TERM_DEFAULTS.reps,
-    state: card.state ?? LONG_TERM_DEFAULTS.state,
-    last_review: lastReviewDate,
-    lapses: card.lapses ?? LONG_TERM_DEFAULTS.lapses,
-    learning_steps: 0,
-  };
-}
-
-// --- SINGLE SOURCE OF TRUTH: Mastery Calculation ---
-/**
- * Calculate mastery for a LONG_TERM card based on FSRS state.
- * This is THE definition used everywhere in the app.
- * 
- * @param card - The flashcard (or partial with state, stability, lapses)
- * @returns "LEARNING" | "STRUGGLING" | "MASTERED"
- * 
- * Rules:
- * - STRUGGLING: Relearning state (3) OR 2+ lapses
- * - MASTERED: Review state (2) AND stability >= 21 days
- * - LEARNING: Everything else (New, Learning, or early Review)
- */
-export function getMastery(card: Pick<Flashcard, 'state' | 'stability' | 'lapses'>): "LEARNING" | "STRUGGLING" | "MASTERED" {
-  const state = card.state ?? 0;
-  const stability = card.stability ?? 0;
-  const lapses = card.lapses ?? 0;
-
-  // STRUGGLING: Relearning (forgot it) OR high lapse count
-  if (state === 3 || lapses >= MASTERY_THRESHOLDS.lapsesForStruggling) {
-    return "STRUGGLING";
-  }
-
-  // MASTERED: Review state with long-term stability
-  if (state === 2 && stability >= MASTERY_THRESHOLDS.stabilityForMastered) {
-    return "MASTERED";
-  }
-
-  // LEARNING: Everything else (New=0, Learning=1, or Review with low stability)
-  return "LEARNING";
-}
-
-// --- FACTORY: Create New LONG_TERM Card Fields ---
-/**
- * Returns the FSRS fields for a brand new LONG_TERM card.
- * Used by flashcardStore.addFlashcard and addFlashcardsBatch.
- */
-export function createNewLongTermCard(): {
-  mode: "LONG_TERM";
-  state: number;
-  stability: number;
-  difficulty: number;
-  lapses: number;
-  reps: number;
-  mastery: "LEARNING";
-  nextReviewDate: Date;
-} {
-  return {
-    mode: "LONG_TERM",
-    state: LONG_TERM_DEFAULTS.state,
-    stability: LONG_TERM_DEFAULTS.stability,
-    difficulty: LONG_TERM_DEFAULTS.difficulty,
-    lapses: LONG_TERM_DEFAULTS.lapses,
-    reps: LONG_TERM_DEFAULTS.reps,
-    mastery: "LEARNING",
-    nextReviewDate: new Date(), // Due immediately
-  };
-}
-
-// --- MIGRATION: Convert TEST_PREP Card to LONG_TERM ---
-/**
- * Converts a TEST_PREP card to LONG_TERM mode.
- * Uses the card's existing mastery to seed initial FSRS values.
- * 
- * @param card - The TEST_PREP card to convert
- * @param now - Current date (for setting last_review)
- * @returns Partial flashcard updates for LONG_TERM mode
- */
-export function convertCardToLongTerm(
-  card: Flashcard,
   now: Date = new Date()
 ): Partial<Flashcard> {
-  // Map TEST_PREP mastery to initial FSRS params
-  let initialState: number;
-  let initialStability: number;
-  let initialDifficulty: number;
-
-  switch (card.mastery) {
-    case "MASTERED":
-      initialState = 2;        // Review state
-      initialStability = 21;   // 3 weeks
-      initialDifficulty = 5;   // Average
-      break;
-    case "LEARNING":
-      initialState = 1;        // Learning state
-      initialStability = 3;    // 3 days
-      initialDifficulty = 5;   // Average
-      break;
-    case "STRUGGLING":
-    default:
-      initialState = 0;        // New state (will re-learn)
-      initialStability = 0;    // FSRS will calculate
-      initialDifficulty = 7;   // Slightly harder
-      break;
+  const today = startOfDay(now);
+  const testDate = card.testDate instanceof Date 
+    ? card.testDate 
+    : card.testDate ? new Date(card.testDate) : addDays(today, 30);
+  
+  const schedule = card.schedule || generateSchedule(testDate);
+  const currentStep = card.currentStep || 0;
+  
+  // AGAIN: Enter relearning phase
+  if (rating === "AGAIN") {
+    const newLapses = (card.lapses || 0) + 1;
+    
+    return {
+      learningState: 'RELEARNING',
+      learningStep: 0,
+      learningSteps: RELEARNING_STEPS,
+      learningCardType: 'INTRADAY',
+      nextReviewDate: addSeconds(now, RELEARNING_STEPS[0]),
+      currentStep: 0,  // Reset after relearning completes
+      lapses: newLapses,
+      reps: (card.reps || 0) + 1,
+      lastReview: now,
+      lastResponse: rating,
+      mastery: 'STRUGGLING',
+      isLeech: newLapses >= LEECH_THRESHOLD
+    };
   }
+  
+  // HARD: Regress 1 step
+  if (rating === "HARD") {
+    const newStep = Math.max(0, currentStep - 1);
+    const baseInterval = schedule[newStep] || 1;
+    const fuzzedInterval = applyFuzz(Math.max(1, baseInterval));
+    const nextReview = applyDateCap(addDays(today, fuzzedInterval), testDate);
+    
+    return {
+      currentStep: newStep,
+      nextReviewDate: nextReview,
+      mastery: 'STRUGGLING',
+      reps: (card.reps || 0) + 1,
+      lastReview: now,
+      lastResponse: rating
+    };
+  }
+  
+  // GOOD: Advance 1 step
+  if (rating === "GOOD") {
+    const newStep = Math.min(schedule.length - 1, currentStep + 1);
+    const baseInterval = schedule[newStep];
+    const fuzzedInterval = applyFuzz(baseInterval);
+    const nextReview = applyDateCap(addDays(today, fuzzedInterval), testDate);
+    
+    return {
+      currentStep: newStep,
+      nextReviewDate: nextReview,
+      mastery: newStep >= MASTERY_STEP_THRESHOLD ? 'MASTERED' : 'LEARNING',
+      reps: (card.reps || 0) + 1,
+      lastReview: now,
+      lastResponse: rating
+    };
+  }
+  
+  // EASY: Skip 1 step (blocked if step < 2)
+  if (rating === "EASY") {
+    if (currentStep < 2) {
+      // Treat as GOOD
+      return calculateTestPrepReview(card, "GOOD", now);
+    }
+    
+    const newStep = Math.min(schedule.length - 1, currentStep + 2);
+    const baseInterval = schedule[newStep];
+    const fuzzedInterval = applyFuzz(baseInterval);
+    const nextReview = applyDateCap(addDays(today, fuzzedInterval), testDate);
+    
+    return {
+      currentStep: newStep,
+      nextReviewDate: nextReview,
+      mastery: newStep >= MASTERY_STEP_THRESHOLD ? 'MASTERED' : 'LEARNING',
+      reps: (card.reps || 0) + 1,
+      lastReview: now,
+      lastResponse: rating
+    };
+  }
+  
+  throw new Error(`Invalid rating: ${rating}`);
+}
 
-  // Calculate next review based on initial stability
-  const nextReviewDate = initialStability > 0
-    ? addDays(now, initialStability)
-    : now; // Due immediately if no stability
+// ============================================================================
+// PART 7: LONG_TERM REVIEW LOGIC (GRADUATED CARDS)
+// ============================================================================
 
+/**
+ * Calculate next review for graduated LONG_TERM card
+ */
+export function calculateLongTermReview(
+  card: Flashcard,
+  rating: ReviewRating,
+  now: Date = new Date()
+): Partial<Flashcard> {
+  // AGAIN: Enter relearning phase
+  if (rating === "AGAIN") {
+    const newLapses = (card.lapses || 0) + 1;
+    
+    return {
+      learningState: 'RELEARNING',
+      learningStep: 0,
+      learningSteps: RELEARNING_STEPS,
+      learningCardType: 'INTRADAY',
+      nextReviewDate: addSeconds(now, RELEARNING_STEPS[0]),
+      state: FSRSState.Relearning,
+      lapses: newLapses,
+      reps: (card.reps || 0) + 1,
+      lastReview: now,
+      lastResponse: rating,
+      mastery: 'STRUGGLING',
+      isLeech: newLapses >= LEECH_THRESHOLD
+    };
+  }
+  
+  // Build FSRS card from current state
+  const lastReviewDate = card.lastReview || card.last_review;
+  const elapsedDays = lastReviewDate ? daysBetween(new Date(lastReviewDate), now) : 0;
+  
+  const fsrsCard: FSRSCard = {
+    due: new Date(card.nextReviewDate),
+    stability: card.stability || 0,
+    difficulty: card.difficulty || 5,
+    elapsed_days: elapsedDays,
+    scheduled_days: card.stability || 0,
+    reps: card.reps || 0,
+    lapses: card.lapses || 0,
+    state: card.state || State.Review,
+    last_review: lastReviewDate ? new Date(lastReviewDate) : undefined,
+    learning_steps: 0,
+  };
+  
+  // Map rating
+  const fsrsRating = rating === "HARD" ? FSRSRating.Hard
+                   : rating === "GOOD" ? FSRSRating.Good
+                   : FSRSRating.Easy;
+  
+  // Call FSRS
+  const schedulingCards = fsrs.repeat(fsrsCard, now);
+  const result = schedulingCards[fsrsRating].card;
+  
+  // Get stability and apply minimum intervals
+  let stabilityDays = result.stability;
+  const stabilityMs = stabilityDays * 24 * 60 * 60 * 1000;
+  const minInterval = LONG_TERM_MIN_INTERVALS[
+    rating === "HARD" ? 'hard' : rating === "GOOD" ? 'good' : 'easy'
+  ];
+  
+  if (minInterval > 0 && stabilityMs < minInterval) {
+    stabilityDays = minInterval / (24 * 60 * 60 * 1000);
+  }
+  
+  // Apply fuzz
+  const fuzzedDays = applyFSRSFuzz(stabilityDays);
+  const nextReview = addDays(now, fuzzedDays);
+  
+  // Calculate mastery
+  const mastery: MasteryLevel = (card.lapses || 0) >= MASTERY_THRESHOLDS.lapsesForStruggling
+    ? 'STRUGGLING'
+    : fuzzedDays >= MASTERY_THRESHOLDS.stabilityForMastered
+    ? 'MASTERED'
+    : 'LEARNING';
+  
   return {
-    mode: "LONG_TERM",
-    state: initialState,
-    stability: initialStability,
-    difficulty: initialDifficulty,
-    lapses: 0,
-    reps: 0,
-    last_review: now,
-    nextReviewDate,
-    mastery: getMastery({ state: initialState, stability: initialStability, lapses: 0 }),
-    // Clear TEST_PREP fields
-    testDate: undefined,
-    schedule: undefined,
-    currentStep: undefined,
+    stability: fuzzedDays,
+    difficulty: result.difficulty,
+    state: result.state as FSRSState,
+    nextReviewDate: nextReview,
+    mastery,
+    reps: (card.reps || 0) + 1,
+    lastReview: now,
+    lastResponse: rating
   };
 }
 
-// --- REVIEW: Calculate LONG_TERM Review Result ---
+// ============================================================================
+// PART 8: MAIN REVIEW FUNCTION (ORCHESTRATOR)
+// ============================================================================
+
 /**
- * Calculate the next state for a LONG_TERM card after a review.
- * Uses ts-fsrs algorithm with minimum interval enforcement.
+ * Main review function - routes to correct logic
  */
-export const calculateLongTermReview = (
+export function reviewCard(
   card: Flashcard,
   rating: ReviewRating,
-  nowOverride?: Date
-): Partial<Flashcard> => {
-  const now = nowOverride || new Date();
+  now: Date = new Date()
+): Partial<Flashcard> {
+  // Learning or Relearning phase
+  if (card.learningState !== 'GRADUATED') {
+    return calculateLearningReview(card, rating, now);
+  }
   
-  // Map app rating to FSRS rating
-  let fsrsRating: Rating;
-  switch (rating) {
-    case "AGAIN": fsrsRating = Rating.Again; break;
-    case "HARD": fsrsRating = Rating.Hard; break;
-    case "GOOD": fsrsRating = Rating.Good; break;
-    case "EASY": fsrsRating = Rating.Easy; break;
+  // Graduated - route by mode
+  if (card.mode === 'TEST_PREP') {
+    return calculateTestPrepReview(card, rating, now);
+  } else {
+    return calculateLongTermReview(card, rating, now);
   }
+}
 
-  // Build FSRS card and run algorithm
-  const fCard = buildFSRSCard(card, now);
-  const schedulingCards = fsrs.repeat(fCard, now);
-  const result = schedulingCards[fsrsRating].card;
-
-  // Apply minimum intervals based on rating
-  let minIntervalMs: number;
-  switch (fsrsRating) {
-    case Rating.Again: minIntervalMs = LONG_TERM_MIN_INTERVALS.again; break;
-    case Rating.Hard: minIntervalMs = LONG_TERM_MIN_INTERVALS.hard; break;
-    case Rating.Good: minIntervalMs = LONG_TERM_MIN_INTERVALS.good; break;
-    case Rating.Easy: minIntervalMs = LONG_TERM_MIN_INTERVALS.easy; break;
-    default: minIntervalMs = 0;
-  }
-
-  const fsrsIntervalMs = result.due.getTime() - now.getTime();
-  const actualIntervalMs = Math.max(fsrsIntervalMs, minIntervalMs);
-  const nextReviewDate = new Date(now.getTime() + actualIntervalMs);
-
-  // Calculate mastery using single source of truth
-  const mastery = getMastery({
-    state: result.state,
-    stability: result.stability,
-    lapses: result.lapses,
-  });
-
-  return {
-    state: result.state,
-    stability: result.stability,
-    difficulty: result.difficulty,
-    nextReviewDate,
-    last_review: now,
-    lastResponse: rating,
-    reps: result.reps,
-    lapses: result.lapses,
-    mastery,
-  };
-};
+/**
+ * Legacy alias for compatibility
+ */
+export const handleReview = reviewCard;
 
 // ============================================================================
-// PART 4: INTERVAL PREVIEW (For UI Display)
+// PART 9: DUE CARD DETECTION
+// ============================================================================
+
+/**
+ * Helper to check if a deck is in Final Review Mode
+ */
+export const isFinalReviewDay = (testDate: Date): boolean => {
+  const today = startOfDay(new Date());
+  const dayBefore = subDays(dateStartOfDay(testDate), 1);
+  return isSameDay(today, dayBefore);
+};
+
+/**
+ * Helper to check if today is test day
+ */
+export const isTestDay = (testDate: Date): boolean => {
+  const today = startOfDay(new Date());
+  return isSameDay(today, dateStartOfDay(testDate));
+};
+
+/**
+ * Get all due cards with proper priority ordering
+ */
+export function getDueCards(
+  allCards: Flashcard[],
+  decks: Deck[],
+  testDayLockoutEnabled: boolean = true
+): Flashcard[] {
+  const now = new Date();
+  const today = startOfDay(now);
+  const earlyReviewCutoff = addSeconds(now, EARLY_REVIEW_BUFFER_SECONDS);
+  
+  const intradayLearning: Flashcard[] = [];
+  const interdayLearning: Flashcard[] = [];
+  const reviewCards: Flashcard[] = [];
+  
+  // Create deck lookup
+  const deckMap: Record<string, Deck> = {};
+  decks.forEach(d => { deckMap[d.id] = d; });
+  
+  for (const card of allCards) {
+    // Skip suspended leeches
+    if (card.leechSuspended) continue;
+    
+    const deck = deckMap[card.deckId];
+    if (!deck) continue;
+    
+    // Test Day Lockout check
+    if (deck.mode === 'TEST_PREP' && deck.testDate && testDayLockoutEnabled) {
+      if (isTestDay(new Date(deck.testDate))) {
+        continue;  // Skip all cards from this deck on test day
+      }
+    }
+    
+    // Final Review Day - all cards are due
+    if (deck.mode === 'TEST_PREP' && deck.testDate) {
+      if (isFinalReviewDay(new Date(deck.testDate))) {
+        reviewCards.push(card);
+        continue;
+      }
+    }
+    
+    // Learning/Relearning cards
+    if (card.learningState !== 'GRADUATED') {
+      const cardDue = new Date(card.nextReviewDate);
+      
+      if (card.learningCardType === 'INTRADAY') {
+        // Exact timestamp with early buffer
+        if (cardDue.getTime() <= earlyReviewCutoff.getTime()) {
+          intradayLearning.push(card);
+        }
+      } else {
+        // INTERDAY: Day-based comparison
+        const cardDueDay = startOfDay(cardDue);
+        if (cardDueDay.getTime() <= today.getTime()) {
+          interdayLearning.push(card);
+        }
+      }
+      continue;
+    }
+    
+    // Graduated cards
+    if (deck.mode === 'LONG_TERM') {
+      // Exact timestamp comparison
+      const cardDue = new Date(card.nextReviewDate);
+      if (cardDue.getTime() <= now.getTime()) {
+        reviewCards.push(card);
+      }
+    } else {
+      // TEST_PREP: Day-based comparison
+      const cardDueDay = startOfDay(new Date(card.nextReviewDate));
+      if (cardDueDay.getTime() <= today.getTime()) {
+        reviewCards.push(card);
+      }
+    }
+  }
+  
+  // Sort each category
+  intradayLearning.sort((a, b) => 
+    new Date(a.nextReviewDate).getTime() - new Date(b.nextReviewDate).getTime()
+  );
+  
+  interdayLearning.sort((a, b) => {
+    const dateCompare = new Date(a.nextReviewDate).getTime() - new Date(b.nextReviewDate).getTime();
+    if (dateCompare !== 0) return dateCompare;
+    
+    const masteryOrder = { STRUGGLING: 0, LEARNING: 1, MASTERED: 2 };
+    return (masteryOrder[a.mastery] || 1) - (masteryOrder[b.mastery] || 1);
+  });
+  
+  reviewCards.sort((a, b) => {
+    const masteryOrder = { STRUGGLING: 0, LEARNING: 1, MASTERED: 2 };
+    const masteryCompare = (masteryOrder[a.mastery] || 1) - (masteryOrder[b.mastery] || 1);
+    if (masteryCompare !== 0) return masteryCompare;
+    
+    return new Date(a.nextReviewDate).getTime() - new Date(b.nextReviewDate).getTime();
+  });
+  
+  // Combine in priority order
+  return [...intradayLearning, ...interdayLearning, ...reviewCards];
+}
+
+// ============================================================================
+// PART 10: MODE SWITCHING
+// ============================================================================
+
+/**
+ * Convert cards from TEST_PREP to LONG_TERM
+ */
+export function convertToLongTerm(cards: Flashcard[]): Partial<Flashcard>[] {
+  const now = new Date();
+  
+  return cards.map(card => {
+    if (card.learningState !== 'GRADUATED') {
+      return { mode: 'LONG_TERM' as const };
+    }
+    
+    const wasOverdue = new Date(card.nextReviewDate) < now;
+    
+    return {
+      mode: 'LONG_TERM' as const,
+      nextReviewDate: wasOverdue ? now : new Date(card.nextReviewDate),
+      mastery: (card.lapses || 0) >= MASTERY_THRESHOLDS.lapsesForStruggling
+        ? 'STRUGGLING' as const
+        : (card.stability || 0) >= MASTERY_THRESHOLDS.stabilityForMastered
+        ? 'MASTERED' as const
+        : 'LEARNING' as const
+    };
+  });
+}
+
+/**
+ * Convert cards from LONG_TERM to TEST_PREP
+ */
+export function convertToTestPrep(
+  cards: Flashcard[],
+  testDate: Date,
+  ladder: number[] = STANDARD_LADDER
+): Partial<Flashcard>[] {
+  const now = new Date();
+  const schedule = generateSchedule(testDate);
+  
+  return cards.map(card => {
+    if (card.learningState !== 'GRADUATED') {
+      return {
+        mode: 'TEST_PREP' as const,
+        testDate,
+        schedule
+      };
+    }
+    
+    const closestStep = findClosestLadderStep(card.stability || 0, ladder);
+    const wasOverdue = new Date(card.nextReviewDate) < now;
+    
+    return {
+      mode: 'TEST_PREP' as const,
+      testDate,
+      schedule,
+      currentStep: closestStep,
+      nextReviewDate: wasOverdue ? now : new Date(card.nextReviewDate),
+      mastery: (card.lapses || 0) >= MASTERY_THRESHOLDS.lapsesForStruggling
+        ? 'STRUGGLING' as const
+        : closestStep >= MASTERY_STEP_THRESHOLD
+        ? 'MASTERED' as const
+        : 'LEARNING' as const
+    };
+  });
+}
+
+// ============================================================================
+// PART 11: OPTIONAL REVIEW MODE
+// ============================================================================
+
+/**
+ * Get all cards for optional review (not just due)
+ */
+export function getOptionalReviewCards(cards: Flashcard[], deckId: string): Flashcard[] {
+  const deckCards = cards.filter(c => c.deckId === deckId && !c.leechSuspended);
+  
+  // Sort: STRUGGLING → LEARNING → MASTERED
+  return deckCards.sort((a, b) => {
+    const masteryOrder = { STRUGGLING: 0, LEARNING: 1, MASTERED: 2 };
+    return (masteryOrder[a.mastery] || 1) - (masteryOrder[b.mastery] || 1);
+  });
+}
+
+/**
+ * Review a card in optional mode (doesn't affect schedule)
+ */
+export function reviewFlashcardOptional(
+  card: Flashcard,
+  rating: ReviewRating,
+  now: Date = new Date()
+): Partial<Flashcard> {
+  // Only update tracking, NOT nextReviewDate
+  return {
+    reps: (card.reps || 0) + 1,
+    lastReview: now,
+    lastResponse: rating
+  };
+}
+
+// ============================================================================
+// PART 12: SCHEDULE HEALTH CHECK
+// ============================================================================
+
+/**
+ * Check for scheduling problems
+ */
+export function checkScheduleHealth(
+  cards: Flashcard[],
+  deck: Deck
+): ScheduleWarning[] {
+  const warnings: ScheduleWarning[] = [];
+  const now = new Date();
+  
+  // Check for cards past test date (TEST_PREP only)
+  if (deck.mode === 'TEST_PREP' && deck.testDate) {
+    const testDate = new Date(deck.testDate);
+    const cardsPastTest = cards.filter(
+      c => c.deckId === deck.id && 
+           c.learningState === 'GRADUATED' && 
+           new Date(c.nextReviewDate) > testDate
+    );
+    
+    if (cardsPastTest.length > 0) {
+      warnings.push({
+        type: 'CARDS_PAST_TEST',
+        count: cardsPastTest.length,
+        recommendation: 'Consider using Optional Review Mode to review these cards before test'
+      });
+    }
+  }
+  
+  // Check for leeches
+  const leeches = cards.filter(c => c.deckId === deck.id && c.isLeech && !c.leechSuspended);
+  if (leeches.length > 0) {
+    warnings.push({
+      type: 'LEECH_DETECTED',
+      count: leeches.length,
+      recommendation: 'These cards need to be edited, simplified, or suspended'
+    });
+  }
+  
+  // Check for overdue cards
+  const overdueCards = cards.filter(c => {
+    if (c.deckId !== deck.id) return false;
+    const dueDate = new Date(c.nextReviewDate);
+    const daysDue = daysBetween(dueDate, now);
+    return dueDate < now && daysDue > 7;
+  });
+  
+  if (overdueCards.length > 0) {
+    warnings.push({
+      type: 'OVERDUE_CARDS',
+      count: overdueCards.length,
+      recommendation: 'You have cards overdue by more than a week'
+    });
+  }
+  
+  return warnings;
+}
+
+// ============================================================================
+// PART 13: INTERVAL PREVIEW
 // ============================================================================
 
 export interface IntervalPreview {
@@ -402,249 +965,175 @@ export interface IntervalPreview {
 }
 
 /**
- * Format interval in days to human-readable string
+ * Format interval to human-readable string
  */
 function formatInterval(days: number): string {
   if (days < 1) {
-    // Less than a day - show in minutes or hours
     const hours = days * 24;
     if (hours < 1) {
       const minutes = Math.round(hours * 60);
-      return `${minutes}m`;
+      return `${Math.max(1, minutes)}m`;
     }
     return `${Math.round(hours)}h`;
   } else if (days < 7) {
     return `${Math.round(days)}d`;
   } else if (days < 30) {
-    const weeks = Math.round(days / 7);
-    return `${weeks}w`;
+    return `${Math.round(days / 7)}w`;
   } else if (days < 365) {
-    const months = Math.round(days / 30);
-    return `${months}mo`;
+    return `${Math.round(days / 30)}mo`;
   } else {
-    const years = Math.round(days / 365);
-    return `${years}y`;
+    return `${Math.round(days / 365)}y`;
   }
 }
 
 /**
- * Preview intervals for all ratings without applying them
- * Used to display interval hints on rating buttons
+ * Format seconds to human-readable string
+ */
+function formatSeconds(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  } else if (seconds < 3600) {
+    return `${Math.round(seconds / 60)}m`;
+  } else if (seconds < 86400) {
+    return `${Math.round(seconds / 3600)}h`;
+  } else {
+    return `${Math.round(seconds / 86400)}d`;
+  }
+}
+
+/**
+ * Get interval previews for all ratings
  */
 export function getIntervalPreviews(card: Flashcard): IntervalPreview {
-  // Default to TEST_PREP if mode is undefined (handles cards without mode column)
+  // Check learning state first
+  if (card.learningState !== 'GRADUATED') {
+    return getLearningIntervalPreviews(card);
+  }
+  
+  // Graduated cards - route by mode
   if (card.mode === "LONG_TERM") {
     return getLongTermIntervalPreviews(card);
   } else {
-    // TEST_PREP or undefined defaults to TEST_PREP
     return getTestPrepIntervalPreviews(card);
   }
 }
 
-function getTestPrepIntervalPreviews(card: Flashcard): IntervalPreview {
-  // Ensure testDate is a Date object - fallback to 30 days from now
-  const today = startOfDay(new Date());
-  const testDate = card.testDate 
-    ? (card.testDate instanceof Date ? card.testDate : new Date(card.testDate))
-    : addDays(today, 30); // Fallback
-
-  const currentStep = card.currentStep || 0;
-  const schedule = card.schedule && card.schedule.length > 0 
-    ? card.schedule 
-    : generateSchedule(testDate);
-
-  // AGAIN: Requeue in session (show as "Now" or short time)
-  const againInterval = "Now";
-
-  // HARD: Always 1 day
-  const hardInterval = "1d";
-
-  // GOOD: Next step in schedule
-  const goodStep = currentStep + 1;
+function getLearningIntervalPreviews(card: Flashcard): IntervalPreview {
+  const steps = card.learningSteps || LEARNING_STEPS;
+  const currentStep = card.learningStep || 0;
+  
+  // AGAIN: First step
+  const againInterval = formatSeconds(steps[0]);
+  
+  // HARD: Average or 1.5x
+  let hardSeconds: number;
+  if (currentStep === 0 && steps.length > 1) {
+    hardSeconds = Math.round((steps[0] + steps[1]) / 2);
+  } else {
+    hardSeconds = Math.round(steps[currentStep] * 1.5);
+  }
+  const hardInterval = formatSeconds(hardSeconds);
+  
+  // GOOD: Next step or graduate
   let goodInterval: string;
-  if (goodStep >= schedule.length) {
-    // End of ladder - next review is day before test
-    const today = startOfDay(new Date());
-    const dayBeforeTest = subDays(startOfDay(testDate), 1);
-    const daysUntil = differenceInDays(dayBeforeTest, today);
-    goodInterval = daysUntil <= 0 ? "Now" : formatInterval(daysUntil);
+  if (currentStep < steps.length - 1) {
+    goodInterval = formatSeconds(steps[currentStep + 1]);
   } else {
-    goodInterval = formatInterval(schedule[goodStep]);
+    goodInterval = "Grad";  // Will graduate
   }
-
-  // EASY: Skip step (or treated as GOOD if step < 2)
-  let easyInterval: string;
-  if (currentStep < 2) {
-    // Blocked - treated as GOOD
-    easyInterval = goodInterval;
-  } else {
-    const easyStep = currentStep + 2;
-    if (easyStep >= schedule.length) {
-      const today = startOfDay(new Date());
-      const dayBeforeTest = subDays(startOfDay(testDate), 1);
-      const daysUntil = differenceInDays(dayBeforeTest, today);
-      easyInterval = daysUntil <= 0 ? "Now" : formatInterval(daysUntil);
-    } else {
-      easyInterval = formatInterval(schedule[easyStep]);
-    }
-  }
-
+  
+  // EASY: Graduate
+  const easyInterval = "Grad";
+  
   return {
     again: againInterval,
     hard: hardInterval,
     good: goodInterval,
-    easy: easyInterval,
+    easy: easyInterval
   };
+}
+
+function getTestPrepIntervalPreviews(card: Flashcard): IntervalPreview {
+  const today = startOfDay(new Date());
+  const testDate = card.testDate 
+    ? (card.testDate instanceof Date ? card.testDate : new Date(card.testDate))
+    : addDays(today, 30);
+
+  const currentStep = card.currentStep || 0;
+  const schedule = card.schedule?.length ? card.schedule : generateSchedule(testDate);
+
+  const againInterval = "10m";  // Relearning step
+  const hardInterval = "1d";
+
+  const goodStep = Math.min(schedule.length - 1, currentStep + 1);
+  const goodInterval = formatInterval(schedule[goodStep]);
+
+  let easyInterval: string;
+  if (currentStep < 2) {
+    easyInterval = goodInterval;
+  } else {
+    const easyStep = Math.min(schedule.length - 1, currentStep + 2);
+    easyInterval = formatInterval(schedule[easyStep]);
+  }
+
+  return { again: againInterval, hard: hardInterval, good: goodInterval, easy: easyInterval };
 }
 
 function getLongTermIntervalPreviews(card: Flashcard): IntervalPreview {
   const now = new Date();
+  const lastReviewDate = card.lastReview || card.last_review;
   
-  // Use centralized FSRS card builder
-  const fCard = buildFSRSCard(card, now);
-  const schedulingCards = fsrs.repeat(fCard, now);
+  const fsrsCard: FSRSCard = {
+    due: new Date(card.nextReviewDate),
+    stability: card.stability || 0,
+    difficulty: card.difficulty || 5,
+    elapsed_days: lastReviewDate ? daysBetween(new Date(lastReviewDate), now) : 0,
+    scheduled_days: card.stability || 0,
+    reps: card.reps || 0,
+    state: card.state || State.Review,
+    last_review: lastReviewDate ? new Date(lastReviewDate) : undefined,
+    lapses: card.lapses || 0,
+    learning_steps: 0,
+  };
 
-  // Calculate intervals with minimum enforcement (same as calculateLongTermReview)
-  // Note: "Again" is always "Now" so we skip calculating it
-  const hardFsrsMs = schedulingCards[Rating.Hard].card.due.getTime() - now.getTime();
-  const goodFsrsMs = schedulingCards[Rating.Good].card.due.getTime() - now.getTime();
-  const easyFsrsMs = schedulingCards[Rating.Easy].card.due.getTime() - now.getTime();
+  const schedulingCards = fsrs.repeat(fsrsCard, now);
 
-  // Apply minimums using shared config
-  const hardMs = Math.max(hardFsrsMs, LONG_TERM_MIN_INTERVALS.hard);
-  const goodMs = Math.max(goodFsrsMs, LONG_TERM_MIN_INTERVALS.good);
-  const easyMs = Math.max(easyFsrsMs, LONG_TERM_MIN_INTERVALS.easy);
-
-  // Convert to days for formatting
-  const MS_PER_DAY = 1000 * 60 * 60 * 24;
-  const hardDays = hardMs / MS_PER_DAY;
-  const goodDays = goodMs / MS_PER_DAY;
-  const easyDays = easyMs / MS_PER_DAY;
+  const againDays = (schedulingCards[FSRSRating.Again].card.due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+  const hardDays = (schedulingCards[FSRSRating.Hard].card.due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+  const goodDays = (schedulingCards[FSRSRating.Good].card.due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+  const easyDays = (schedulingCards[FSRSRating.Easy].card.due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
 
   return {
-    again: "Now",
-    hard: formatInterval(Math.max(0.0035, hardDays)),
-    good: formatInterval(Math.max(0.007, goodDays)),
+    again: againDays < 0.01 ? "10m" : formatInterval(againDays),
+    hard: formatInterval(Math.max(0.01, hardDays)),
+    good: formatInterval(Math.max(0.01, goodDays)),
     easy: formatInterval(Math.max(0.01, easyDays)),
   };
 }
 
 // ============================================================================
-// PART 5: SESSION CONTROLLER (The Query)
+// PART 14: LEGACY COMPATIBILITY
 // ============================================================================
 
 /**
- * Helper to check if a deck is in Final Review Mode (Day Before Test)
+ * Get mastery level for a card
  */
-export const isFinalReviewDay = (testDate: Date): boolean => {
-  const today = startOfDay(new Date());
-  const dayBefore = subDays(startOfDay(testDate), 1);
-  return isSameDay(today, dayBefore);
+export const getMastery = (card: Flashcard): MasteryLevel => {
+  return card.mastery || 'LEARNING';
 };
 
 /**
- * Helper to check if a deck is in Test Day Lockout (Test Day)
+ * Get initial FSRS params for migration
  */
-export const isTestDay = (testDate: Date): boolean => {
-  const today = startOfDay(new Date());
-  return isSameDay(today, startOfDay(testDate));
-};
-
-/**
- * Main Handle Review Function
- * Checks mode and routes to correct logic.
- */
-export const handleReview = (
-  card: Flashcard,
-  rating: ReviewRating
-): Partial<Flashcard> | null => {
-  if (card.mode === "TEST_PREP") {
-    return calculateTestPrepReview(card, rating);
-  } else {
-    return calculateLongTermReview(card, rating);
+export const getInitialFSRSParams = (
+  mastery: MasteryLevel | undefined
+) => {
+  switch (mastery) {
+    case "MASTERED":
+      return { state: FSRSState.Review, stability: 14, difficulty: 5 };
+    case "LEARNING":
+      return { state: FSRSState.Learning, stability: 2, difficulty: 6 };
+    default:
+      return { state: FSRSState.New, stability: 0, difficulty: 8 };
   }
 };
-
-/**
- * Function: getDueCards
- * Implements Final Review Check, Test Day Lockout, Standard Review, Weekend Warrior Fix.
- * 
- * IMPORTANT: LONG_TERM mode uses exact timestamp comparison because FSRS schedules 
- * with specific times (minutes/hours). TEST_PREP uses day-based comparison.
- */
-export function getDueCards(
-  allCards: Flashcard[], 
-  decks: Deck[]
-): Flashcard[] {
-  const now = new Date(); // Current exact time for LONG_TERM comparisons
-  const today = startOfDay(now); // Start of day for TEST_PREP comparisons
-  let dueCards: Flashcard[] = [];
-
-  // Group cards by deck for efficiency
-  const cardsByDeck: Record<string, Flashcard[]> = {};
-  allCards.forEach(c => {
-    if (!cardsByDeck[c.deckId]) cardsByDeck[c.deckId] = [];
-    cardsByDeck[c.deckId].push(c);
-  });
-
-  decks.forEach(deck => {
-    // Handle LONG_TERM mode - uses FSRS logic with exact timestamp comparison
-    // FSRS can schedule cards with specific times (e.g., "due in 14 minutes")
-    // so we must compare actual timestamps, not just dates
-    if (deck.mode === 'LONG_TERM') {
-      const deckCards = cardsByDeck[deck.id] || [];
-      const standardDue = deckCards.filter(c => {
-        // Use exact timestamp comparison for FSRS - cards are only due when their time has passed
-        const reviewDate = new Date(c.nextReviewDate);
-        return reviewDate <= now;
-      });
-      dueCards = dueCards.concat(standardDue);
-      return;
-    }
-    
-    // TEST_PREP mode (default if mode is undefined)
-    // Uses day-based comparison since TEST_PREP schedules in whole days
-    // If no testDate, still include cards that are due
-    if (!deck.testDate) {
-      const deckCards = cardsByDeck[deck.id] || [];
-      const standardDue = deckCards.filter(c => {
-        const reviewDate = startOfDay(new Date(c.nextReviewDate));
-        return reviewDate <= today;
-      });
-      dueCards = dueCards.concat(standardDue);
-      return;
-    }
-    
-    const deckTestDate = startOfDay(new Date(deck.testDate));
-    const deckCards = cardsByDeck[deck.id] || [];
-
-    // Test Day Lockout: IF today == deck.testDate: Return empty list (No reviews allowed).
-    if (isSameDay(today, deckTestDate)) {
-      return; // Skip this deck entirely
-    }
-
-    // Final Review Check: IF today == (deck.testDate - 1)
-    if (isSameDay(today, subDays(deckTestDate, 1))) {
-      // Fetch ALL cards in deck (Ignore nextReviewDate).
-      // Sort: STRUGGLING first, then LEARNING.
-      const sorted = [...deckCards].sort((a, b) => {
-        const scoreA = a.mastery === 'STRUGGLING' ? 0 : a.mastery === 'LEARNING' ? 1 : 2;
-        const scoreB = b.mastery === 'STRUGGLING' ? 0 : b.mastery === 'LEARNING' ? 1 : 2;
-        return scoreA - scoreB;
-      });
-      dueCards = dueCards.concat(sorted);
-      return;
-    }
-
-    // Standard Review: Fetch cards where nextReviewDate <= today.
-    // Weekend Warrior Fix: Do NOT check lastResponseDate.
-    const standardDue = deckCards.filter(c => {
-      // Handle both Date objects and ISO strings from storage
-      const reviewDate = startOfDay(new Date(c.nextReviewDate));
-      return reviewDate <= today;
-    });
-    dueCards = dueCards.concat(standardDue);
-  });
-
-  return dueCards;
-}
