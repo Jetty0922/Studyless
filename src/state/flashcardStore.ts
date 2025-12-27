@@ -80,10 +80,6 @@ interface FlashcardActions {
   resetDeck: (deckId: string) => Promise<void>;
   forceAllDue: (deckId: string) => Promise<void>;
   timeTravelDeck: (deckId: string, days: number) => Promise<void>;
-  
-  // TEST_PREP testing tools
-  recalculateTestPrepSchedules: (deckId: string) => Promise<void>;
-  simulateDaysPassing: (deckId: string, days: number) => Promise<void>;
 }
 
 const generateId = () => uuidv4();
@@ -1273,112 +1269,6 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             await supabase.from('flashcards').update(dbUpdates).eq('id', card.id);
           }
         }
-      },
-      
-      recalculateTestPrepSchedules: async (deckId: string) => {
-        const state = get();
-        const deck = state.decks.find(d => d.id === deckId);
-        if (!deck?.testDate || deck.mode !== 'TEST_PREP') return;
-        
-        const testDate = new Date(deck.testDate);
-        const now = new Date();
-        const today = startOfDay(now);
-        
-        // Import phase logic
-        const { getExamPhase } = await import('../utils/examScheduler');
-        const { calculateOptimalReviewTime } = await import('../utils/retrievability');
-        
-        const phaseConfig = getExamPhase(testDate);
-        const { phase, targetRetention, daysLeft } = phaseConfig;
-        
-        console.log('[recalculateTestPrepSchedules] Phase:', phase, 'daysLeft:', daysLeft, 'targetR:', targetRetention);
-        
-        // Recalculate nextReviewDate for all cards based on current phase
-        const updatedFlashcards = state.flashcards.map((card) => {
-          if (card.deckId !== deckId) return card;
-          
-          // Skip cards currently in intraday learning (they have their own timing)
-          if (card.learningState === 'LEARNING' || card.learningState === 'RELEARNING') {
-            if (card.learningCardType === 'INTRADAY') return card;
-          }
-          
-          const stability = card.stability || 1;
-          let newInterval: number;
-          
-          if (phase === 'CRAM' || phase === 'EXAM_DAY') {
-            // CRAM: Schedule for tomorrow or today
-            newInterval = Math.min(1, Math.max(0, daysLeft));
-          } else if (phase === 'CONSOLIDATION') {
-            newInterval = Math.min(
-              Math.max(1, calculateOptimalReviewTime(stability, targetRetention)),
-              daysLeft
-            );
-          } else {
-            // MAINTENANCE
-            newInterval = Math.min(
-              Math.max(1, calculateOptimalReviewTime(stability, 0.75)),
-              daysLeft
-            );
-          }
-          
-          const newDueDate = addDays(today, Math.round(newInterval));
-          
-          console.log('[recalculateTestPrepSchedules] Card', card.id.slice(0,8), 'stability:', stability, 'interval:', newInterval);
-          
-          return {
-            ...card,
-            nextReviewDate: newDueDate
-          };
-        });
-        
-        set({ flashcards: updatedFlashcards });
-        
-        // Update in Supabase
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const deckCards = updatedFlashcards.filter(c => c.deckId === deckId);
-          for (const card of deckCards) {
-            await supabase.from('flashcards').update({
-              next_review_date: card.nextReviewDate instanceof Date
-                ? card.nextReviewDate.toISOString()
-                : new Date(card.nextReviewDate).toISOString(),
-              updated_at: new Date().toISOString()
-            }).eq('id', card.id);
-          }
-        }
-      },
-      
-      simulateDaysPassing: async (deckId: string, days: number) => {
-        const state = get();
-        const deck = state.decks.find(d => d.id === deckId);
-        if (!deck) return;
-        
-        // For TEST_PREP: Move test date closer (backward) to simulate days passing
-        if (deck.mode === 'TEST_PREP' && deck.testDate) {
-          const currentTestDate = new Date(deck.testDate);
-          const newTestDate = subDays(currentTestDate, days);
-          
-          // Update deck with new test date
-          const updatedDecks = state.decks.map(d => 
-            d.id === deckId ? { ...d, testDate: newTestDate } : d
-          );
-          set({ decks: updatedDecks });
-          
-          // Update in Supabase
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await supabase.from('decks').update({
-              test_date: newTestDate.toISOString(),
-              updated_at: new Date().toISOString()
-            }).eq('id', deckId);
-          }
-        }
-        
-        // Now also shift card dates (like time travel)
-        await get().timeTravelDeck(deckId, days);
-        
-        // Finally, recalculate schedules based on new phase
-        await get().recalculateTestPrepSchedules(deckId);
       },
     }),
     {

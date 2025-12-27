@@ -35,8 +35,6 @@ export default function AdminDebugScreen() {
   const resetDeck = useFlashcardStore((s) => s.resetDeck);
   const forceAllDue = useFlashcardStore((s) => s.forceAllDue);
   const timeTravelDeck = useFlashcardStore((s) => s.timeTravelDeck);
-  const updateDeck = useFlashcardStore((s) => s.updateDeck);
-  const recalculateTestPrepSchedules = useFlashcardStore((s) => s.recalculateTestPrepSchedules);
   
   const [selectedDeckId, setSelectedDeckId] = useState<string | null>(
     decks.length > 0 ? decks[0].id : null
@@ -115,39 +113,6 @@ export default function AdminDebugScreen() {
       Alert.alert("Success", `Time traveled ${days} days into the future`);
     } catch (e) {
       Alert.alert("Error", "Failed to time travel");
-    }
-    setIsLoading(false);
-  };
-  
-  const handleMoveTestDateCloser = async (days: number) => {
-    if (!selectedDeckId || !selectedDeck) return;
-    if (selectedDeck.mode !== 'TEST_PREP' || !selectedDeck.testDate) {
-      Alert.alert("Error", "This only works for TEST_PREP decks with a test date");
-      return;
-    }
-    
-    setIsLoading(true);
-    try {
-      const currentTestDate = selectedDeck.testDate instanceof Date 
-        ? selectedDeck.testDate 
-        : new Date(selectedDeck.testDate);
-      const newTestDate = new Date(currentTestDate.getTime() - days * 24 * 60 * 60 * 1000);
-      
-      // Don't allow test date in the past
-      if (newTestDate <= new Date()) {
-        Alert.alert("Error", "Cannot set test date to past");
-        setIsLoading(false);
-        return;
-      }
-      
-      await updateDeck(selectedDeckId, { testDate: newTestDate });
-      // Recalculate all card schedules based on new test date/phase
-      await recalculateTestPrepSchedules(selectedDeckId);
-      
-      const daysLeft = Math.ceil((newTestDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-      Alert.alert("Success", `Test date moved to ${newTestDate.toLocaleDateString()} (${daysLeft} days away). Card schedules recalculated.`);
-    } catch (e) {
-      Alert.alert("Error", "Failed to update test date");
     }
     setIsLoading(false);
   };
@@ -302,28 +267,6 @@ export default function AdminDebugScreen() {
                       </Pressable>
                     ))}
                   </View>
-                  
-                  {selectedDeck?.mode === 'TEST_PREP' && selectedDeck.testDate && (
-                    <>
-                      <Text style={[styles.subTitle, { color: colors.textSecondary, marginTop: 16 }]}>
-                        Move Test Date Closer (for testing cram mode)
-                      </Text>
-                      <Text style={[styles.testDateInfo, { color: colors.warning }]}>
-                        Current: {new Date(selectedDeck.testDate).toLocaleDateString()} ({Math.ceil((new Date(selectedDeck.testDate).getTime() - new Date().getTime()) / (1000*60*60*24))} days away)
-                      </Text>
-                      <View style={styles.timeButtonsRow}>
-                        {[1, 2, 3, 5].map((days) => (
-                          <Pressable
-                            key={days}
-                            onPress={() => handleMoveTestDateCloser(days)}
-                            style={[styles.timeButton, { backgroundColor: colors.warning + '30', borderColor: colors.warning }]}
-                          >
-                            <Text style={{ color: colors.warning, fontWeight: "600" }}>-{days}d</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    </>
-                  )}
                   
                   <Pressable
                     onPress={handleResetDeck}
@@ -530,11 +473,6 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-  },
-  testDateInfo: {
-    fontSize: 13,
-    marginBottom: 8,
-    fontWeight: "500",
   },
   clearButton: {
     alignSelf: "flex-start",

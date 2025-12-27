@@ -26,7 +26,6 @@ export default function DeckSettingsScreen() {
   const updateDeck = useFlashcardStore((s) => s.updateDeck);
   const deleteDeck = useFlashcardStore((s) => s.deleteDeck);
   const toggleLongTermMode = useFlashcardStore((s) => s.toggleLongTermMode);
-  const recalculateTestPrepSchedules = useFlashcardStore((s) => s.recalculateTestPrepSchedules);
 
   const deck = decks.find((d) => d.id === deckId);
   const [showEditName, setShowEditName] = useState(false);
@@ -67,21 +66,15 @@ export default function DeckSettingsScreen() {
       if (Platform.OS === "android") {
         if (pendingModeSwitch === "TEST_PREP") {
           // Android: immediately switch mode with selected date
-          (async () => {
-            await updateDeck(deckId, { 
-              mode: "TEST_PREP", 
-              testDate: date 
-            });
-            await recalculateTestPrepSchedules(deckId);
-          })();
+          updateDeck(deckId, { 
+            mode: "TEST_PREP", 
+            testDate: date 
+          });
           setPendingModeSwitch(null);
         } else {
-          Alert.alert("Change Test Date", "This will recalculate review schedules for all cards. Continue?", [
+          Alert.alert("Change Test Date", "This will update the test date. Continue?", [
             { text: "Cancel", style: "cancel" },
-            { text: "Change", onPress: async () => {
-              await updateDeck(deckId, { testDate: date });
-              await recalculateTestPrepSchedules(deckId);
-            }},
+            { text: "Change", onPress: () => updateDeck(deckId, { testDate: date }) },
           ]);
         }
       }
@@ -91,29 +84,23 @@ export default function DeckSettingsScreen() {
     }
   };
 
-  const handleConfirmDateChange = async () => {
+  const handleConfirmDateChange = () => {
     setShowDatePicker(false);
     
     // Check if this is for a mode switch
     if (pendingModeSwitch === "TEST_PREP") {
-      await updateDeck(deckId, { 
+      updateDeck(deckId, { 
         mode: "TEST_PREP", 
         testDate: selectedDate 
       });
-      // Recalculate schedules for the new test date
-      await recalculateTestPrepSchedules(deckId);
       setPendingModeSwitch(null);
       return;
     }
     
     // Regular date change for existing TEST_PREP deck
-    Alert.alert("Change Test Date", "This will recalculate review schedules for all cards. Continue?", [
+    Alert.alert("Change Test Date", "This will update the test date. Continue?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Change", onPress: async () => {
-        await updateDeck(deckId, { testDate: selectedDate });
-        // Recalculate schedules based on new test date
-        await recalculateTestPrepSchedules(deckId);
-      }},
+      { text: "Change", onPress: () => updateDeck(deckId, { testDate: selectedDate }) },
     ]);
   };
 
