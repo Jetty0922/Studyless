@@ -8,19 +8,23 @@ import {
   Flashcard,
   StudyStats,
   ReviewRating,
+  FSRSState,
+  ReviewHistory,
 } from "../types/flashcard";
 import {
-  calculateTestPrepReview,
-  calculateLongTermReview,
+  reviewCard,
   generateSchedule,
-  getDueCards,
+  getDueCards as getDueCardsUtil,
+  getInitialFSRSParams,
   isFinalReviewDay,
   applyDateCap,
-  // New clean LONG_TERM helpers
-  createNewLongTermCard,
-  convertCardToLongTerm,
+  getOptionalReviewCards,
+  reviewFlashcardOptional,
+  LEARNING_STEPS,
+  RELEARNING_STEPS,
+  daysBetween,
 } from "../utils/spacedRepetition";
-import { startOfDay } from "date-fns";
+import { startOfDay, addDays, differenceInDays } from "date-fns";
 
 interface FlashcardState {
   decks: Deck[];
@@ -42,7 +46,7 @@ interface FlashcardActions {
   ) => Promise<void>;
   addFlashcardsBatch: (
     deckId: string,
-    cards: Array<{ front: string; back: string; imageUri?: string; fileUri?: string }>
+    cards: { front: string; back: string; imageUri?: string; fileUri?: string }[]
   ) => Promise<void>;
   updateFlashcard: (id: string, front: string, back: string) => Promise<void>;
   deleteFlashcard: (id: string) => Promise<void>;
@@ -218,19 +222,14 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             deck.cardCount = deckCards.length;
           });
 
-          // 5. Transform stats - MERGE with local to avoid losing review counts
-          const localStats = get().stats;
-          const remoteCardsReviewedToday = profile?.cards_reviewed_today || 0;
-          const remoteTotalCardsReviewed = profile?.total_cards_reviewed || 0;
-          
-          // Use the higher value between local and remote to avoid data loss
+          // 5. Transform stats
           const transformedStats: StudyStats = {
-            currentStreak: Math.max(profile?.current_streak || 0, localStats.currentStreak),
-            longestStreak: Math.max(profile?.longest_streak || 0, localStats.longestStreak),
-            totalCardsReviewed: Math.max(remoteTotalCardsReviewed, localStats.totalCardsReviewed),
-            dailyGoal: profile?.daily_goal || localStats.dailyGoal || 20,
-            cardsReviewedToday: Math.max(remoteCardsReviewedToday, localStats.cardsReviewedToday),
-            lastStudyDate: profile?.last_study_date ? new Date(profile.last_study_date) : localStats.lastStudyDate,
+            currentStreak: profile?.current_streak || 0,
+            longestStreak: profile?.longest_streak || 0,
+            totalCardsReviewed: profile?.total_cards_reviewed || 0,
+            dailyGoal: profile?.daily_goal || 20,
+            cardsReviewedToday: profile?.cards_reviewed_today || 0,
+            lastStudyDate: profile?.last_study_date ? new Date(profile.last_study_date) : undefined,
           };
 
           // 6. Update local state
@@ -403,7 +402,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             const today = startOfDay(new Date());
             const interval = newSchedule[safeStep];
             const nextReview = applyDateCap(
-                new Date(today.getTime() + interval * 24 * 60 * 60 * 1000), 
+                addDays(today, interval), 
                 newTestDate
             );
 
@@ -502,8 +501,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         }
 
         if (deck.mode === "LONG_TERM") {
-          // Use centralized LONG_TERM card factory
-          const longTermFields = createNewLongTermCard();
+          // LONG_TERM: Start in learning phase
           newCard = {
             id: generateId(),
             deckId,
@@ -512,11 +510,34 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             imageUri: finalImageUri,
             fileUri: finalFileUri,
             createdAt: now,
-            ...longTermFields,
+            
+            mode: "LONG_TERM",
+            nextReviewDate: now, // Due immediately
+            
+            // Learning phase fields
+            learningState: 'LEARNING',
+            learningStep: 0,
+            learningSteps: LEARNING_STEPS,
+            learningCardType: 'INTRADAY',
+            
+            // FSRS fields (will be set at graduation)
+            state: FSRSState.New,
+            stability: 0,
+            difficulty: 5,
+            
+            // Tracking
+            reps: 0,
+            lapses: 0,
+            mastery: 'LEARNING',
+            
+            // Leech
+            isLeech: false,
+            leechSuspended: false,
+            
             againCount: 0,
           };
         } else {
-          // TEST_PREP
+          // TEST_PREP: Start in learning phase
           if (!deck.testDate) throw new Error("Test date is required");
           
           const schedule = generateSchedule(deck.testDate);
@@ -532,12 +553,32 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             
             mode: "TEST_PREP",
             testDate: deck.testDate,
+            nextReviewDate: now, // Due immediately for learning
             
+            // Learning phase fields
+            learningState: 'LEARNING',
+            learningStep: 0,
+            learningSteps: LEARNING_STEPS,
+            learningCardType: 'INTRADAY',
+            
+            // TEST_PREP specific
             schedule,
             currentStep: 0,
-            nextReviewDate: today, // Due immediately (or today)
             
-            mastery: "LEARNING",
+            // FSRS fields (will be set at graduation)
+            state: FSRSState.New,
+            stability: 0,
+            difficulty: 5,
+            
+            // Tracking
+            reps: 0,
+            lapses: 0,
+            mastery: 'LEARNING',
+            
+            // Leech
+            isLeech: false,
+            leechSuspended: false,
+            
             againCount: 0,
           };
         }
@@ -607,8 +648,6 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             let newCard: Flashcard;
 
             if (deck.mode === "LONG_TERM") {
-                // Use centralized LONG_TERM card factory
-                const longTermFields = createNewLongTermCard();
                 newCard = {
                     id,
                     deckId,
@@ -617,7 +656,11 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
                     imageUri: finalImageUri,
                     fileUri: finalFileUri,
                     createdAt: now,
-                    ...longTermFields,
+                    mode: "LONG_TERM",
+                    nextReviewDate: now,
+                    state: 0,
+                    stability: 0,
+                    difficulty: 5,
                     againCount: 0,
                 };
             } else {
@@ -720,43 +763,31 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         const card = state.flashcards.find((f) => f.id === id);
         if (!card) return;
 
-        // Get deck to fallback testDate if card doesn't have it
+        const now = new Date();
         const deck = state.decks.find((d) => d.id === card.deckId);
 
-        let updates: Partial<Flashcard> & { action?: 'REQUEUE' } = {};
+        // Ensure card has required fields for review
+        const cardForReview: Flashcard = {
+          ...card,
+          testDate: card.testDate || deck?.testDate,
+          mode: card.mode || deck?.mode || 'TEST_PREP',
+          learningState: card.learningState || 'LEARNING',
+          learningStep: card.learningStep || 0,
+          learningSteps: card.learningSteps || LEARNING_STEPS,
+          mastery: card.mastery || 'LEARNING',
+          stability: card.stability || 0,
+          difficulty: card.difficulty || 5,
+          reps: card.reps || 0,
+          lapses: card.lapses || 0,
+          isLeech: card.isLeech || false,
+          leechSuspended: card.leechSuspended || false,
+          state: card.state || FSRSState.New,
+        };
 
-        // Route to correct logic
-        if (card.mode === "TEST_PREP" || deck?.mode === "TEST_PREP") {
-            const testDate = card.testDate || deck?.testDate;
-            const cardWithTestDate = {
-              ...card,
-              testDate,
-              mode: "TEST_PREP" as const,
-            };
-            updates = calculateTestPrepReview(cardWithTestDate, rating);
-            // Persist mode/testDate so future reviews stay in TEST_PREP
-            updates.mode = "TEST_PREP";
-            updates.testDate = testDate;
-        } else {
-            updates = calculateLongTermReview(card, rating);
-            updates.mode = "LONG_TERM";
-        }
+        // Use new unified reviewCard function
+        const updates = reviewCard(cardForReview, rating, now);
 
-        // Handle "AGAIN" case (Requeue) - Action: REQUEUE
-        if (updates.action === 'REQUEUE') {
-            // We only update local session state (againCount, maybe nextReviewDate if it was set to today)
-            // We do NOT persist this to DB usually, or we do if we want to track stats?
-            // Spec says: "Do not save to DB."
-            
-            set({
-                flashcards: state.flashcards.map((f) =>
-                    f.id === id ? { ...f, ...updates } : f
-                ),
-                // Maybe update stats? 
-            });
-            return; // Exit early, no DB sync
-        }
-
+        // Update local state
         set({
           flashcards: state.flashcards.map((f) =>
             f.id === id ? { ...f, ...updates } : f
@@ -767,55 +798,75 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             cardsReviewedToday: state.stats.cardsReviewedToday + 1,
           },
         });
-
+        
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-           // Update flashcard
-           const dbUpdates: any = {
-             updated_at: new Date().toISOString()
-           };
-           
-           // Handle nextReviewDate - ensure it's converted to ISO string properly
-           if (updates.nextReviewDate) {
-             dbUpdates.next_review_date = updates.nextReviewDate instanceof Date 
-               ? updates.nextReviewDate.toISOString() 
-               : new Date(updates.nextReviewDate).toISOString();
-           }
+          // Store review history
+          const elapsedDays = card.lastReview 
+            ? daysBetween(new Date(card.lastReview), now) 
+            : 0;
+          const scheduledDays = card.stability || 0;
+          
+          try {
+            await supabase.from('review_history').insert({
+              id: uuidv4(),
+              user_id: user.id,
+              card_id: id,
+              rating: rating === 'AGAIN' ? 1 : rating === 'HARD' ? 2 : rating === 'GOOD' ? 3 : 4,
+              review_date: now.toISOString(),
+              elapsed_days: elapsedDays,
+              scheduled_days: scheduledDays,
+              state: card.state || 0,
+              stability: card.stability || 0,
+              difficulty: card.difficulty || 5,
+            });
+          } catch (e) {
+            console.error("Failed to store review history:", e);
+          }
 
-           // Persist mode/testDate when provided
-           if (updates.mode) dbUpdates.mode = updates.mode;
-           if (updates.testDate) {
-             dbUpdates.test_date = updates.testDate instanceof Date
-               ? updates.testDate.toISOString()
-               : new Date(updates.testDate).toISOString();
-           }
+          // Update flashcard in DB
+          const dbUpdates: Record<string, unknown> = {
+            updated_at: now.toISOString()
+          };
            
-           // FSRS fields
-           if (updates.state !== undefined) dbUpdates.state = updates.state;
-           if (updates.stability !== undefined) dbUpdates.stability = updates.stability;
-           if (updates.difficulty !== undefined) dbUpdates.difficulty = updates.difficulty;
-           if (updates.reps !== undefined) dbUpdates.reps = updates.reps;
-           if (updates.lapses !== undefined) dbUpdates.lapses = updates.lapses;
-           if (updates.last_review) {
-             dbUpdates.last_review = updates.last_review instanceof Date 
-               ? updates.last_review.toISOString() 
-               : new Date(updates.last_review).toISOString();
-           }
-           
-           // TEST_PREP fields
-           if (updates.currentStep !== undefined) dbUpdates.current_step = updates.currentStep;
-           if (updates.mastery) dbUpdates.mastery = updates.mastery;
-           if (updates.againCount !== undefined) dbUpdates.again_count = updates.againCount;
-           
-           await supabase.from('flashcards').update(dbUpdates).eq('id', id);
+          if (updates.nextReviewDate) {
+            dbUpdates.next_review_date = updates.nextReviewDate instanceof Date 
+              ? updates.nextReviewDate.toISOString() 
+              : new Date(updates.nextReviewDate).toISOString();
+          }
 
-           // Update stats in profile
-           // (Simplified stat update)
-           await supabase.from('profiles').update({
-             // Increment stats ideally via RPC, but simple update here
-             // We don't have the new total available easily without reading back or relying on local store
-             updated_at: new Date().toISOString()
-           }).eq('id', user.id);
+          // Learning phase fields
+          if (updates.learningState !== undefined) dbUpdates.learning_state = updates.learningState;
+          if (updates.learningStep !== undefined) dbUpdates.learning_step = updates.learningStep;
+          if (updates.learningSteps !== undefined) dbUpdates.learning_steps = updates.learningSteps;
+          if (updates.learningCardType !== undefined) dbUpdates.learning_card_type = updates.learningCardType;
+
+          // FSRS fields
+          if (updates.state !== undefined) dbUpdates.state = updates.state;
+          if (updates.stability !== undefined) dbUpdates.stability = updates.stability;
+          if (updates.difficulty !== undefined) dbUpdates.difficulty = updates.difficulty;
+          if (updates.reps !== undefined) dbUpdates.reps = updates.reps;
+          if (updates.lapses !== undefined) dbUpdates.lapses = updates.lapses;
+          if (updates.lastReview) {
+            dbUpdates.last_review = updates.lastReview instanceof Date 
+              ? updates.lastReview.toISOString() 
+              : new Date(updates.lastReview).toISOString();
+          }
+           
+          // TEST_PREP fields
+          if (updates.currentStep !== undefined) dbUpdates.current_step = updates.currentStep;
+          if (updates.mastery) dbUpdates.mastery = updates.mastery;
+          
+          // Leech fields
+          if (updates.isLeech !== undefined) dbUpdates.is_leech = updates.isLeech;
+          if (updates.leechSuspended !== undefined) dbUpdates.leech_suspended = updates.leechSuspended;
+           
+          await supabase.from('flashcards').update(dbUpdates).eq('id', id);
+
+          // Update stats in profile
+          await supabase.from('profiles').update({
+            updated_at: now.toISOString()
+          }).eq('id', user.id);
         }
       },
 
@@ -823,12 +874,36 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         const state = get();
         const now = new Date();
 
-        // Use centralized conversion helper
         const updatedFlashcards = state.flashcards.map((f) => {
             if (f.deckId !== deckId) return f;
+
+            // Initialize FSRS params based on mastery
+            const initialParams = getInitialFSRSParams(f.mastery);
             
-            const updates = convertCardToLongTerm(f, now);
-            return { ...f, ...updates };
+            // Critical Edge Case (The Gap)
+            // Set card.last_review = card.testDate
+            // This is tricky if testDate is null or in future. 
+            // Assuming testDate is in the past (test passed).
+            // If testDate is not set, fallback to createdAt or now.
+            // Use NOW as the review date to avoid time-travel bugs
+            // (testDate could be in the past if test already happened)
+            const lastReviewDate = now;
+            
+            // Calculate next due date from now using initial stability
+            const nextDue = addDays(now, initialParams.stability);
+
+            return {
+              ...f,
+              mode: "LONG_TERM" as const,
+              testDate: undefined,
+              schedule: undefined,
+              currentStep: undefined,
+              mastery: undefined,
+              
+              ...initialParams, // state, stability, difficulty
+              last_review: lastReviewDate,
+              nextReviewDate: nextDue,
+            };
         });
 
         set({
@@ -859,18 +934,18 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
            // Bulk update cards
            const deckCards = updatedFlashcards.filter(f => f.deckId === deckId);
            
+           // Determine efficient way to bulk update. 
+           // For now, loop or RPC. Loop is safe for stability.
            for (const f of deckCards) {
                await supabase.from('flashcards').update({
                    mode: "LONG_TERM",
                    test_date: null,
                    schedule: null,
                    current_step: null,
-                   mastery: f.mastery,
+                   mastery: null,
                    state: f.state,
                    stability: f.stability,
                    difficulty: f.difficulty,
-                   lapses: f.lapses,
-                   reps: f.reps,
                    last_review: f.last_review 
                      ? (f.last_review instanceof Date ? f.last_review.toISOString() : new Date(f.last_review).toISOString())
                      : null,
@@ -898,7 +973,8 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         const relevantDecks = deckId ? allDecks.filter(d => d.id === deckId) : allDecks;
         const relevantCards = deckId ? allCards.filter(c => c.deckId === deckId) : allCards;
         
-        return getDueCards(relevantCards, relevantDecks);
+        // TODO: Get testDayLockoutEnabled from settings store
+        return getDueCardsUtil(relevantCards, relevantDecks, true);
       },
 
       getFinalReviewCards: (deckId) => {
@@ -929,9 +1005,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
           : null;
 
         if (lastStudy) {
-          const daysDiff = Math.floor(
-            (today.getTime() - lastStudy.getTime()) / (1000 * 60 * 60 * 24)
-          );
+          const daysDiff = differenceInDays(today, lastStudy);
 
           if (daysDiff === 0) {
             return;
