@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, ScrollView, Alert, TextInput, Modal, Platform, StyleSheet } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -17,6 +17,7 @@ type DeckSettingsRouteProp = RouteProp<RootStackParamList, "DeckSettings">;
 
 export default function DeckSettingsScreen() {
   const { isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<DeckSettingsRouteProp>();
   const { deckId } = route.params;
@@ -91,12 +92,7 @@ export default function DeckSettingsScreen() {
   const handleDeleteDeck = () => {
     Alert.alert("Delete Deck", "This will permanently delete this deck and all its flashcards. This cannot be undone.", [
       { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => { 
-        deleteDeck(deckId); 
-        // Navigate back twice: DeckSettings -> DeckScreen -> DecksListScreen
-        navigation.goBack();
-        navigation.goBack();
-      }},
+      { text: "Delete", style: "destructive", onPress: () => { deleteDeck(deckId); navigation.goBack(); } },
     ]);
   };
 
@@ -212,7 +208,7 @@ export default function DeckSettingsScreen() {
           onRequestClose={() => setShowDatePicker(false)}
         >
           <View style={{ flex: 1, backgroundColor: isDark ? "#1e293b" : "#ffffff" }}>
-            <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+            <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
               <View style={[styles.datePickerHeader, { borderBottomColor: isDark ? "#334155" : "#e2e8f0" }]}>
                 <Pressable onPress={() => setShowDatePicker(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <Text style={styles.datePickerButton}>Cancel</Text>
@@ -234,7 +230,7 @@ export default function DeckSettingsScreen() {
                   style={{ width: '100%', height: 300 }}
                 />
               </View>
-            </SafeAreaView>
+            </View>
           </View>
         </Modal>
       )}

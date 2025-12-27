@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -19,32 +19,18 @@ type ReviewRouteProp = RouteProp<RootStackParamList, "Review">;
 export default function ReviewScreen() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<ReviewRouteProp>();
-  const cardIds = route.params?.cards || [];
+  const cardIds = useMemo(() => route.params?.cards ?? [], [route.params?.cards]);
 
   const flashcards = useFlashcardStore((s) => s.flashcards);
   const reviewFlashcard = useFlashcardStore((s) => s.reviewFlashcard);
 
-  const { colors, isDark } = useTheme();
-  const safeInsets = useSafeAreaInsets();
+  const { isDark } = useTheme();
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [reviewedCount, setReviewedCount] = useState(0);
   const [sessionCards, setSessionCards] = useState<Flashcard[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
-
-  // #region agent log
-  useEffect(() => {
-    const currentDims = Dimensions.get('window');
-    fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:mount',message:'Component mounted',data:{moduleLevelWidth:SCREEN_WIDTH,currentWindowWidth:currentDims.width,currentWindowHeight:currentDims.height,progressMaxWidth:SCREEN_WIDTH-120,headerMaxWidth:SCREEN_WIDTH,safeInsets:safeInsets},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
-    
-    const subscription = Dimensions.addEventListener('change', ({ window }) => {
-      fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:dimensionChange',message:'Dimension changed',data:{newWidth:window.width,newHeight:window.height,oldModuleWidth:SCREEN_WIDTH,mismatch:window.width!==SCREEN_WIDTH},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
-    });
-    
-    return () => subscription?.remove();
-  }, [safeInsets]);
-  // #endregion
 
   const flipAnim = useRef(new Animated.Value(0)).current;
 
@@ -78,14 +64,7 @@ export default function ReviewScreen() {
     }
   }, [cardIds, flashcards, isInitialized]);
 
-  useEffect(() => { flipAnim.setValue(0); }, [currentIndex]);
-
-  // #region agent log
-  useEffect(() => {
-    const dims = Dimensions.get('window');
-    fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:render',message:'Render with dimensions',data:{currentIndex,showAnswer,moduleLevelWidth:SCREEN_WIDTH,actualWindowWidth:dims.width,widthMismatch:dims.width!==SCREEN_WIDTH,cardId:currentCard?.id,isInitialized,sessionCardsLength:sessionCards.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
-  });
-  // #endregion
+  useEffect(() => { flipAnim.setValue(0); }, [currentIndex, flipAnim]);
 
   const handleFlip = () => {
     if (showAnswer) {
@@ -99,11 +78,6 @@ export default function ReviewScreen() {
 
   const handleRating = (rating: ReviewRating) => {
     if (!currentCard) return;
-
-    // #region agent log
-    const beforeDims = Dimensions.get('window');
-    fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:handleRating:before',message:'Before review',data:{rating,cardId:currentCard.id,currentIndex,sessionLength:sessionCards.length,windowWidth:beforeDims.width,moduleWidth:SCREEN_WIDTH},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
-    // #endregion
 
     if (rating === "AGAIN") {
       reviewFlashcard(currentCard.id, rating);
@@ -124,14 +98,11 @@ export default function ReviewScreen() {
         navigation.goBack();
       }
     }
-
-    // #region agent log
-    const afterDims = Dimensions.get('window');
-    fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReviewScreen.tsx:handleRating:after',message:'After review',data:{rating,newIndex:currentIndex,windowWidth:afterDims.width,moduleWidth:SCREEN_WIDTH,widthChanged:beforeDims.width!==afterDims.width},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
-    // #endregion
   };
 
-  const handleClose = () => navigation.goBack();
+  const handleClose = () => {
+    navigation.goBack();
+  };
 
   if (!isInitialized) {
     return (
@@ -251,8 +222,6 @@ export default function ReviewScreen() {
   );
 }
 
-const BUTTON_WIDTH = (SCREEN_WIDTH - 56) / 4; // 20px padding on each side + 16px total gaps
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centerContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
@@ -292,6 +261,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, 
     justifyContent: "center",
     paddingVertical: 16,
+    width: '100%',
+    maxWidth: SCREEN_WIDTH,
+    alignSelf: 'center',
   },
   cardWrapper: { flex: 1, maxHeight: 340 },
   card: { 
@@ -324,6 +296,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, 
     paddingBottom: 16,
     paddingTop: 8,
+    width: '100%',
+    maxWidth: SCREEN_WIDTH,
+    alignSelf: 'center',
   },
   ratingTitle: { textAlign: "center", fontWeight: "600", fontSize: 15, marginBottom: 12 },
   ratingButtonsRow: { 
