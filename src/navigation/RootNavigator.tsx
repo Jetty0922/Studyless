@@ -15,6 +15,8 @@ import ProgressScreen from "../screens/ProgressScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import AccountSettingsScreen from "../screens/AccountSettingsScreen";
 import DecksListScreen from "../screens/DecksListScreen";
+import AdminDebugScreen from "../screens/AdminDebugScreen";
+import { isAdmin } from "../config/admin";
 
 // Import onboarding screens
 import ValuePropScreen from "../screens/ValuePropScreen";
@@ -39,6 +41,7 @@ export type RootStackParamList = {
   Deck: { deckId: string };
   DeckSettings: { deckId: string };
   AccountSettings: undefined;
+  AdminDebug: undefined;
   DeckSelection: {
     flashcards: { front: string; back: string }[];
     sourceUri?: string;
@@ -215,6 +218,17 @@ export default function RootNavigator() {
               headerBackTitle: "Back",
             }}
           />
+          {isAdmin(user?.email) && (
+            <Stack.Screen
+              name="AdminDebug"
+              component={AdminDebugScreen}
+              options={{
+                title: "Admin Debug",
+                headerShown: true,
+                headerBackTitle: "Back",
+              }}
+            />
+          )}
           <Stack.Screen
             name="DeckSelection"
             component={DeckSelectionScreen}

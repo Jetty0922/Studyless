@@ -24,6 +24,12 @@ import {
   RELEARNING_STEPS,
   daysBetween,
 } from "../utils/spacedRepetition";
+import {
+  IntervalCalculationLog,
+  resetCardToNew,
+  forceCardDue,
+  simulateTimePassing,
+} from "../utils/debugTools";
 import { startOfDay, addDays, differenceInDays } from "date-fns";
 
 interface FlashcardState {
@@ -31,6 +37,10 @@ interface FlashcardState {
   flashcards: Flashcard[];
   stats: StudyStats;
   hasCompletedOnboarding: boolean;
+  
+  // Debug state (admin only)
+  debugMode: boolean;
+  intervalLogs: IntervalCalculationLog[];
 }
 
 interface FlashcardActions {
@@ -50,7 +60,7 @@ interface FlashcardActions {
   ) => Promise<void>;
   updateFlashcard: (id: string, front: string, back: string) => Promise<void>;
   deleteFlashcard: (id: string) => Promise<void>;
-  reviewFlashcard: (id: string, rating: ReviewRating) => Promise<void>;
+  reviewFlashcard: (id: string, rating: ReviewRating, reviewTimeMs?: number) => Promise<void>;
   convertToLongTerm: (deckId: string) => Promise<void>;
   toggleLongTermMode: (deckId: string, mode: "TEST_PREP" | "LONG_TERM") => Promise<void>;
   getDueCards: (deckId?: string) => Flashcard[];
@@ -62,6 +72,14 @@ interface FlashcardActions {
   completeOnboarding: () => Promise<void>;
   syncWithSupabase: () => Promise<void>;
   migrateLocalData: () => Promise<void>;
+  
+  // Debug actions (admin only)
+  setDebugMode: (enabled: boolean) => void;
+  logIntervalCalculation: (log: IntervalCalculationLog) => void;
+  clearIntervalLogs: () => void;
+  resetDeck: (deckId: string) => Promise<void>;
+  forceAllDue: (deckId: string) => Promise<void>;
+  timeTravelDeck: (deckId: string, days: number) => Promise<void>;
 }
 
 const generateId = () => uuidv4();
@@ -79,6 +97,10 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         cardsReviewedToday: 0,
       },
       hasCompletedOnboarding: false,
+      
+      // Debug state (admin only)
+      debugMode: false,
+      intervalLogs: [],
 
       syncWithSupabase: async () => {
         const { data: { user } } = await supabase.auth.getUser();
@@ -779,7 +801,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         }
       },
 
-      reviewFlashcard: async (id, rating) => {
+      reviewFlashcard: async (id, rating, reviewTimeMs) => {
         const state = get();
         const card = state.flashcards.find((f) => f.id === id);
         if (!card) return;
@@ -807,6 +829,11 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
 
         // Use new unified reviewCard function
         const updates = reviewCard(cardForReview, rating, now);
+        
+        // Add review time to updates
+        if (reviewTimeMs !== undefined) {
+          (updates as Partial<Flashcard>).reviewTimeMs = reviewTimeMs;
+        }
 
         // Update local state
         set({
@@ -835,11 +862,13 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
               card_id: id,
               rating: rating === 'AGAIN' ? 1 : rating === 'HARD' ? 2 : rating === 'GOOD' ? 3 : 4,
               review_date: now.toISOString(),
+              review_time_ms: reviewTimeMs,  // Track answer time
               elapsed_days: elapsedDays,
               scheduled_days: scheduledDays,
               state: card.state || 0,
               stability: card.stability || 0,
               difficulty: card.difficulty || 5,
+              ease_factor: card.easeFactor,  // Track ease factor
             });
           } catch (e) {
             console.error("Failed to store review history:", e);
@@ -1110,6 +1139,135 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           await supabase.from('profiles').update({ has_completed_onboarding: true }).eq('id', user.id);
+        }
+      },
+
+      // ============================================
+      // DEBUG ACTIONS (Admin Only)
+      // ============================================
+
+      setDebugMode: (enabled: boolean) => {
+        set({ debugMode: enabled });
+      },
+
+      logIntervalCalculation: (log: IntervalCalculationLog) => {
+        set((state) => ({
+          intervalLogs: [...state.intervalLogs.slice(-99), log], // Keep last 100 logs
+        }));
+      },
+
+      clearIntervalLogs: () => {
+        set({ intervalLogs: [] });
+      },
+
+      resetDeck: async (deckId: string) => {
+        const state = get();
+        
+        // Reset all cards in the deck to new state
+        const updatedFlashcards = state.flashcards.map((card) => {
+          if (card.deckId !== deckId) return card;
+          return { ...card, ...resetCardToNew(card) };
+        });
+        
+        set({ flashcards: updatedFlashcards });
+        
+        // Update in Supabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const deckCards = updatedFlashcards.filter(c => c.deckId === deckId);
+          
+          for (const card of deckCards) {
+            await supabase.from('flashcards').update({
+              learning_state: 'LEARNING',
+              learning_step: 0,
+              learning_steps: LEARNING_STEPS,
+              learning_card_type: 'INTRADAY',
+              state: 0, // FSRSState.New
+              stability: 0,
+              difficulty: 5,
+              next_review_date: new Date().toISOString(),
+              reps: 0,
+              lapses: 0,
+              last_review: null,
+              is_leech: false,
+              leech_suspended: false,
+              mastery: 'LEARNING',
+              current_step: 0,
+              updated_at: new Date().toISOString(),
+            }).eq('id', card.id);
+          }
+          
+          // Delete review history for this deck's cards
+          const cardIds = deckCards.map(c => c.id);
+          if (cardIds.length > 0) {
+            await supabase.from('review_history')
+              .delete()
+              .in('card_id', cardIds);
+          }
+        }
+      },
+
+      forceAllDue: async (deckId: string) => {
+        const state = get();
+        const now = new Date();
+        
+        // Force all cards in deck to be due now
+        const updatedFlashcards = state.flashcards.map((card) => {
+          if (card.deckId !== deckId) return card;
+          return { ...card, ...forceCardDue(card) };
+        });
+        
+        set({ flashcards: updatedFlashcards });
+        
+        // Update in Supabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const deckCards = state.flashcards.filter(c => c.deckId === deckId);
+          
+          for (const card of deckCards) {
+            await supabase.from('flashcards').update({
+              next_review_date: now.toISOString(),
+              updated_at: now.toISOString(),
+            }).eq('id', card.id);
+          }
+        }
+      },
+
+      timeTravelDeck: async (deckId: string, days: number) => {
+        const state = get();
+        
+        // Shift all dates back by X days
+        const updatedFlashcards = state.flashcards.map((card) => {
+          if (card.deckId !== deckId) return card;
+          return { ...card, ...simulateTimePassing(card, days) };
+        });
+        
+        set({ flashcards: updatedFlashcards });
+        
+        // Update in Supabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const deckCards = updatedFlashcards.filter(c => c.deckId === deckId);
+          
+          for (const card of deckCards) {
+            const dbUpdates: Record<string, unknown> = {
+              updated_at: new Date().toISOString(),
+            };
+            
+            if (card.nextReviewDate) {
+              dbUpdates.next_review_date = card.nextReviewDate instanceof Date
+                ? card.nextReviewDate.toISOString()
+                : new Date(card.nextReviewDate).toISOString();
+            }
+            
+            if (card.lastReview) {
+              dbUpdates.last_review = card.lastReview instanceof Date
+                ? card.lastReview.toISOString()
+                : new Date(card.lastReview).toISOString();
+            }
+            
+            await supabase.from('flashcards').update(dbUpdates).eq('id', card.id);
+          }
         }
       },
     }),

@@ -10,6 +10,7 @@ import { RootStackParamList } from "../navigation/RootNavigator";
 import { ReviewRating, Flashcard } from "../types/flashcard";
 import { useTheme } from "../utils/useTheme";
 import { getIntervalPreviews } from "../utils/spacedRepetition";
+import { getCardDebugInfo } from "../utils/debugTools";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -23,6 +24,7 @@ export default function ReviewScreen() {
 
   const flashcards = useFlashcardStore((s) => s.flashcards);
   const reviewFlashcard = useFlashcardStore((s) => s.reviewFlashcard);
+  const debugMode = useFlashcardStore((s) => s.debugMode);
 
   const { isDark } = useTheme();
 
@@ -31,6 +33,9 @@ export default function ReviewScreen() {
   const [reviewedCount, setReviewedCount] = useState(0);
   const [sessionCards, setSessionCards] = useState<Flashcard[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+  
+  // Review time tracking - start timer when card is shown
+  const cardShowTimeRef = useRef<number>(Date.now());
 
   const flipAnim = useRef(new Animated.Value(0)).current;
 
@@ -54,6 +59,12 @@ export default function ReviewScreen() {
     return getIntervalPreviews(currentCard);
   }, [currentCard]);
 
+  // Calculate debug info for current card
+  const debugInfo = useMemo(() => {
+    if (!currentCard || !debugMode) return null;
+    return getCardDebugInfo(currentCard);
+  }, [currentCard, debugMode]);
+
   // Only initialize session cards ONCE when component mounts
   // Don't re-run when flashcards store updates (would reset session progress)
   useEffect(() => {
@@ -64,7 +75,11 @@ export default function ReviewScreen() {
     }
   }, [cardIds, flashcards, isInitialized]);
 
-  useEffect(() => { flipAnim.setValue(0); }, [currentIndex, flipAnim]);
+  // Reset flip animation and start timer when card changes
+  useEffect(() => { 
+    flipAnim.setValue(0); 
+    cardShowTimeRef.current = Date.now();
+  }, [currentIndex, flipAnim]);
 
   const handleFlip = () => {
     if (showAnswer) {
@@ -78,17 +93,28 @@ export default function ReviewScreen() {
 
   const handleRating = (rating: ReviewRating) => {
     if (!currentCard) return;
-
-    if (rating === "AGAIN") {
-      reviewFlashcard(currentCard.id, rating);
+    
+    // Calculate review time (time from card shown to rating)
+    const reviewTimeMs = Date.now() - cardShowTimeRef.current;
+    
+    // Check if card is in learning phase (not graduated)
+    const isLearning = currentCard.learningState !== 'GRADUATED';
+    
+    // AGAIN or HARD during learning: Requeue to end of session
+    // This ensures the card reappears within the same session
+    if (rating === "AGAIN" || (rating === "HARD" && isLearning)) {
+      reviewFlashcard(currentCard.id, rating, reviewTimeMs);
       const updatedCards = [...sessionCards];
       const cardToRequeue = updatedCards.splice(currentIndex, 1)[0];
-      updatedCards.push(cardToRequeue);
+      updatedCards.push(cardToRequeue); // Add to END of session
       setSessionCards(updatedCards);
       setShowAnswer(false);
       flipAnim.setValue(0);
+      // Reset timer for requeued card
+      cardShowTimeRef.current = Date.now();
     } else {
-      reviewFlashcard(currentCard.id, rating);
+      // GOOD, EASY, or HARD during review: Remove from session
+      reviewFlashcard(currentCard.id, rating, reviewTimeMs);
       setReviewedCount(reviewedCount + 1);
       if (currentIndex < sessionCards.length - 1) {
         setCurrentIndex(currentIndex + 1);
@@ -180,6 +206,50 @@ export default function ReviewScreen() {
               </Animated.View>
             </LinearGradient>
           </Pressable>
+          
+          {/* Debug Overlay */}
+          {debugInfo && (
+            <View style={[styles.debugOverlay, { backgroundColor: isDark ? "rgba(0,0,0,0.85)" : "rgba(0,0,0,0.75)" }]}>
+              <Text style={styles.debugTitle}>FSRS Debug</Text>
+              <View style={styles.debugRow}>
+                <Text style={styles.debugLabel}>State:</Text>
+                <Text style={styles.debugValue}>{debugInfo.learningState} ({debugInfo.state})</Text>
+              </View>
+              <View style={styles.debugRow}>
+                <Text style={styles.debugLabel}>Step:</Text>
+                <Text style={styles.debugValue}>{debugInfo.learningStep}</Text>
+              </View>
+              <View style={styles.debugRow}>
+                <Text style={styles.debugLabel}>Stability:</Text>
+                <Text style={styles.debugValue}>{debugInfo.stability} days</Text>
+              </View>
+              <View style={styles.debugRow}>
+                <Text style={styles.debugLabel}>Difficulty:</Text>
+                <Text style={styles.debugValue}>{debugInfo.difficulty}/10</Text>
+              </View>
+              <View style={styles.debugRow}>
+                <Text style={styles.debugLabel}>Ease:</Text>
+                <Text style={styles.debugValue}>{debugInfo.easeFactor}</Text>
+              </View>
+              <View style={styles.debugRow}>
+                <Text style={styles.debugLabel}>Retrievability:</Text>
+                <Text style={[styles.debugValue, { color: debugInfo.retrievability < 0.8 ? "#ef4444" : "#22c55e" }]}>
+                  {debugInfo.retrievabilityPercent}
+                </Text>
+              </View>
+              <View style={styles.debugRow}>
+                <Text style={styles.debugLabel}>Elapsed:</Text>
+                <Text style={styles.debugValue}>{debugInfo.daysSinceLastReview}d</Text>
+              </View>
+              <View style={styles.debugRow}>
+                <Text style={styles.debugLabel}>Reps/Lapses:</Text>
+                <Text style={styles.debugValue}>{debugInfo.reps}/{debugInfo.lapses}</Text>
+              </View>
+              {debugInfo.isLeech && (
+                <Text style={styles.debugLeech}>⚠️ LEECH</Text>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Rating Buttons */}
@@ -324,4 +394,45 @@ const styles = StyleSheet.create({
   },
   ratingButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "700", marginBottom: 2 },
   ratingButtonSubtext: { color: "rgba(255, 255, 255, 0.85)", fontSize: 11, fontWeight: "600" },
+  
+  // Debug overlay styles
+  debugOverlay: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    padding: 10,
+    borderRadius: 12,
+    minWidth: 140,
+    zIndex: 100,
+  },
+  debugTitle: {
+    color: "#22c55e",
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 6,
+    fontFamily: "monospace",
+  },
+  debugRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+  debugLabel: {
+    color: "#94a3b8",
+    fontSize: 10,
+    fontFamily: "monospace",
+  },
+  debugValue: {
+    color: "#f1f5f9",
+    fontSize: 10,
+    fontWeight: "600",
+    fontFamily: "monospace",
+  },
+  debugLeech: {
+    color: "#ef4444",
+    fontSize: 11,
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 4,
+  },
 });

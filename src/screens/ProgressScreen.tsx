@@ -1,15 +1,18 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { useFlashcardStore } from "../state/flashcardStore";
-import { format, subDays, startOfWeek, differenceInDays } from "date-fns";
+import { format, subDays, startOfWeek, differenceInDays, addDays } from "date-fns";
 import { useTheme } from "../utils/useTheme";
 import { useNavigation, useFocusEffect, CompositeNavigationProp } from "@react-navigation/native";
 import { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { MainTabsParamList, RootStackParamList } from "../navigation/RootNavigator";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { GlassCard } from "../components/ui";
+import { getExamPhase, getExamPreparedness } from "../utils/examScheduler";
+import { getWorkloadForecast, DEFAULT_LOAD_CONFIG } from "../utils/loadBalancer";
 
 type NavigationProp = CompositeNavigationProp<BottomTabNavigationProp<MainTabsParamList, "Progress">, NativeStackNavigationProp<RootStackParamList>>;
 type TestFilter = "all" | "upcoming" | "finished";
@@ -67,6 +70,26 @@ export default function ProgressScreen() {
     if (testFilter === "finished") return test.isPast;
     return true;
   }).sort((a, b) => testFilter === "finished" ? new Date(b.testDate!).getTime() - new Date(a.testDate!).getTime() : a.daysLeft - b.daysLeft);
+
+  // Exam preparedness for upcoming tests
+  const upcomingExams = useMemo(() => {
+    return decks
+      .filter(d => d.testDate && new Date(d.testDate) > new Date())
+      .map(deck => {
+        const deckCards = flashcards.filter(c => c.deckId === deck.id);
+        const examDate = new Date(deck.testDate!);
+        const phaseConfig = getExamPhase(examDate);
+        const preparedness = getExamPreparedness(deckCards, examDate);
+        return { deck, phaseConfig, preparedness };
+      })
+      .filter(e => e.preparedness.daysLeft <= 30)  // Show exams within 30 days
+      .slice(0, 3);
+  }, [decks, flashcards]);
+
+  // Workload forecast for next 7 days
+  const workloadForecast = useMemo(() => {
+    return getWorkloadForecast(flashcards, 7, DEFAULT_LOAD_CONFIG);
+  }, [flashcards]);
 
   const deckStats = decks.map((deck) => {
     const deckCards = flashcards.filter((card) => card.deckId === deck.id);
@@ -169,6 +192,115 @@ export default function ProgressScreen() {
                 </View>
               </GlassCard>
             )}
+
+            {/* Exam Preparedness */}
+            {upcomingExams.length > 0 && (
+              <GlassCard style={styles.card}>
+                <Text style={[styles.cardTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Exam Preparedness</Text>
+                <Text style={[styles.cardSubtitle, { color: isDark ? "#64748b" : "#94a3b8" }]}>Upcoming exams within 30 days</Text>
+                
+                <View style={styles.examList}>
+                  {upcomingExams.map(({ deck, phaseConfig, preparedness }) => {
+                    const phaseColors = {
+                      MAINTENANCE: "#10b981",
+                      CONSOLIDATION: "#f59e0b",
+                      CRAM: "#ef4444",
+                      EXAM_DAY: "#8b5cf6",
+                      POST_EXAM: "#64748b"
+                    };
+                    const phaseColor = phaseColors[phaseConfig.phase] || "#667eea";
+                    
+                    return (
+                      <View key={deck.id} style={[styles.examItem, { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)" }]}>
+                        <View style={styles.examHeader}>
+                          <View style={styles.examInfo}>
+                            <View style={[styles.examDot, { backgroundColor: deck.color }]} />
+                            <Text style={[styles.examName, { color: isDark ? "#f1f5f9" : "#1e293b" }]} numberOfLines={1}>{deck.name}</Text>
+                          </View>
+                          <View style={[styles.phaseBadge, { backgroundColor: isDark ? `${phaseColor}33` : `${phaseColor}22` }]}>
+                            <Text style={[styles.phaseText, { color: phaseColor }]}>{phaseConfig.phase}</Text>
+                          </View>
+                        </View>
+                        
+                        <View style={styles.examStats}>
+                          <View style={styles.examStatItem}>
+                            <Text style={[styles.examStatLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Days Left</Text>
+                            <Text style={[styles.examStatValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{preparedness.daysLeft}</Text>
+                          </View>
+                          <View style={styles.examStatItem}>
+                            <Text style={[styles.examStatLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Predicted Score</Text>
+                            <Text style={[styles.examStatValue, { color: preparedness.estimatedScore >= 80 ? "#10b981" : preparedness.estimatedScore >= 60 ? "#f59e0b" : "#ef4444" }]}>{preparedness.estimatedScore}%</Text>
+                          </View>
+                          <View style={styles.examStatItem}>
+                            <Text style={[styles.examStatLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Daily Goal</Text>
+                            <Text style={[styles.examStatValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{preparedness.dailyCardsNeeded}</Text>
+                          </View>
+                        </View>
+                        
+                        <View style={styles.examBreakdown}>
+                          <View style={[styles.breakdownItem, { backgroundColor: isDark ? "rgba(16,185,129,0.15)" : "#d1fae5" }]}>
+                            <Ionicons name="checkmark-circle" size={14} color="#10b981" />
+                            <Text style={[styles.breakdownText, { color: "#10b981" }]}>{preparedness.readyCards} ready</Text>
+                          </View>
+                          <View style={[styles.breakdownItem, { backgroundColor: isDark ? "rgba(245,158,11,0.15)" : "#fef3c7" }]}>
+                            <Ionicons name="alert-circle" size={14} color="#f59e0b" />
+                            <Text style={[styles.breakdownText, { color: "#f59e0b" }]}>{preparedness.atRiskCards} at risk</Text>
+                          </View>
+                          <View style={[styles.breakdownItem, { backgroundColor: isDark ? "rgba(239,68,68,0.15)" : "#fee2e2" }]}>
+                            <Ionicons name="warning" size={14} color="#ef4444" />
+                            <Text style={[styles.breakdownText, { color: "#ef4444" }]}>{preparedness.criticalCards} critical</Text>
+                          </View>
+                        </View>
+                        
+                        <Text style={[styles.recommendation, { color: isDark ? "#94a3b8" : "#64748b" }]}>{preparedness.recommendation}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </GlassCard>
+            )}
+
+            {/* Workload Forecast */}
+            <GlassCard style={styles.card}>
+              <Text style={[styles.cardTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Upcoming Reviews</Text>
+              <Text style={[styles.cardSubtitle, { color: isDark ? "#64748b" : "#94a3b8" }]}>Next 7 days</Text>
+              <View style={styles.workloadContainer}>
+                {workloadForecast.map((day, index) => {
+                  const isToday = index === 0;
+                  const barHeight = day.scheduledCards > 0 
+                    ? Math.max((day.scheduledCards / Math.max(...workloadForecast.map(d => d.scheduledCards), 1)) * 80, 12) 
+                    : 4;
+                  
+                  return (
+                    <View key={day.dateKey} style={styles.workloadDay}>
+                      <View style={styles.workloadBarContainer}>
+                        {day.scheduledCards > 0 && (
+                          <Text style={[styles.workloadCount, { color: isDark ? "#94a3b8" : "#64748b" }]}>{day.scheduledCards}</Text>
+                        )}
+                        <View 
+                          style={[
+                            styles.workloadBar, 
+                            { 
+                              height: barHeight, 
+                              backgroundColor: day.isOverloaded 
+                                ? "#ef4444" 
+                                : day.isEasyDay 
+                                  ? "#10b981" 
+                                  : isToday 
+                                    ? "#667eea" 
+                                    : (isDark ? "rgba(102,126,234,0.3)" : "#c7d2fe")
+                            }
+                          ]} 
+                        />
+                      </View>
+                      <Text style={[styles.workloadLabel, { color: isToday ? "#667eea" : (isDark ? "#64748b" : "#94a3b8"), fontWeight: isToday ? "700" : "400" }]}>
+                        {isToday ? "Today" : format(day.date, "EEE")}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </GlassCard>
 
             {/* Review Activity */}
             <GlassCard style={styles.card}>
@@ -306,4 +438,30 @@ const styles = StyleSheet.create({
   shape1: { width: 180, height: 180, top: -60, right: -40 },
   shape2: { width: 120, height: 120, bottom: 300, left: -40 },
   shape3: { width: 80, height: 80, top: 400, right: -20 },
+  
+  // Exam preparedness styles
+  examList: { gap: 16 },
+  examItem: { borderRadius: 16, padding: 14 },
+  examHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  examInfo: { flexDirection: "row", alignItems: "center", flex: 1 },
+  examDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+  examName: { fontSize: 15, fontWeight: "600", flex: 1 },
+  phaseBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  phaseText: { fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+  examStats: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
+  examStatItem: { alignItems: "center" },
+  examStatLabel: { fontSize: 11, marginBottom: 2 },
+  examStatValue: { fontSize: 18, fontWeight: "700" },
+  examBreakdown: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  breakdownItem: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, gap: 4 },
+  breakdownText: { fontSize: 12, fontWeight: "500" },
+  recommendation: { fontSize: 12, fontStyle: "italic", textAlign: "center" },
+  
+  // Workload forecast styles
+  workloadContainer: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", height: 120, marginTop: 8 },
+  workloadDay: { flex: 1, alignItems: "center" },
+  workloadBarContainer: { flex: 1, justifyContent: "flex-end", alignItems: "center", marginBottom: 8 },
+  workloadCount: { fontSize: 10, fontWeight: "600", marginBottom: 4 },
+  workloadBar: { width: 20, borderRadius: 4 },
+  workloadLabel: { fontSize: 10 },
 });

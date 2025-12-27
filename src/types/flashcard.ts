@@ -61,6 +61,38 @@ export enum Rating {
 }
 
 // ============================================================================
+// EXAM PHASE TYPE
+// ============================================================================
+
+/**
+ * Exam preparation phase for 3-phase scheduler
+ */
+export type ExamPhase = 'MAINTENANCE' | 'CONSOLIDATION' | 'CRAM' | 'EXAM_DAY' | 'POST_EXAM';
+
+/**
+ * Leech action taken by user
+ */
+export type LeechAction = 'SIMPLIFIED' | 'SPLIT' | 'MNEMONIC_ADDED' | 'SUSPENDED';
+
+/**
+ * Card insertion order
+ */
+export type InsertionOrder = 'SEQUENTIAL' | 'RANDOM';
+
+// ============================================================================
+// EASY DAY INTERFACE
+// ============================================================================
+
+/**
+ * Configuration for days with reduced workload
+ */
+export interface EasyDay {
+  dayOfWeek?: number;  // 0 (Sunday) - 6 (Saturday) for recurring
+  date?: Date;         // Specific date
+  maxCards: number;    // Reduced limit for this day
+}
+
+// ============================================================================
 // FLASHCARD INTERFACE
 // ============================================================================
 
@@ -97,15 +129,14 @@ export interface Flashcard {
   
   /**
    * learningStep: Current step index (0-based)
-   * Example: learningSteps = [900, 3600]
-   *   step 0 = 15 minutes
-   *   step 1 = 1 hour
+   * Example: learningSteps = [600]
+   *   step 0 = 10 minutes
    */
   learningStep: number;
   
   /**
    * learningSteps: Array of intervals in SECONDS
-   * LEARNING: [900, 3600] = 15 min, 1 hour
+   * LEARNING: [600] = 10 min (FSRS-optimized single step)
    * RELEARNING: [600] = 10 min
    */
   learningSteps: number[];
@@ -163,6 +194,35 @@ export interface Flashcard {
   state: FSRSState;
 
   // ============================================
+  // EASE FACTOR (NEW - SM-2 compatibility)
+  // ============================================
+  
+  /**
+   * easeFactor: Interval multiplier (2.5 = 250% default)
+   * Modified by reviews: -20% Again, -15% Hard, +15% Easy
+   * Floor at 1.3 (130%) to prevent Ease Hell
+   */
+  easeFactor?: number;
+
+  // ============================================
+  // RETRIEVABILITY (NEW - probability tracking)
+  // ============================================
+  
+  /**
+   * retrievability: Current recall probability (0-1)
+   * Calculated dynamically using R(t) = (1 + factor × t/S)^(-power)
+   * Optionally cached for performance
+   */
+  retrievability?: number;
+  
+  /**
+   * rAtExam: Projected retrievability at exam date
+   * Only for TEST_PREP mode during CRAM phase
+   * Used to prioritize cards by weakest memory at exam time
+   */
+  rAtExam?: number;
+
+  // ============================================
   // REVIEW TRACKING
   // ============================================
   
@@ -170,19 +230,31 @@ export interface Flashcard {
   lapses: number;           // Total number of failures (AGAIN presses)
   lastReview?: Date;        // Timestamp of last review (was last_review)
   lastResponse?: ReviewRating;
+  
+  /**
+   * reviewTimeMs: Answer time in milliseconds
+   * Used for analytics and cheating detection (< 1s = suspicious)
+   */
+  reviewTimeMs?: number;
 
   // ============================================
   // SCHEDULING
   // ============================================
   
   nextReviewDate: Date;
+  
+  /**
+   * originalDueDate: Original scheduled date before load balancing
+   * Used to track if card was moved for workload smoothing
+   */
+  originalDueDate?: Date;
 
   // ============================================
   // LEECH DETECTION
   // ============================================
   
   /**
-   * isLeech: True when lapses >= LEECH_THRESHOLD (6)
+   * isLeech: True when lapses >= LEECH_THRESHOLD (4)
    * Indicates card needs to be rewritten/simplified/suspended
    */
   isLeech: boolean;
@@ -192,6 +264,11 @@ export interface Flashcard {
    * If true, card is excluded from due card queries
    */
   leechSuspended: boolean;
+  
+  /**
+   * leechAction: Action taken by user when card became leech
+   */
+  leechAction?: LeechAction;
 
   // ============================================
   // LEGACY/COMPAT FIELDS
@@ -224,7 +301,60 @@ export interface Deck {
   cardCount: number;
   dueCards?: number;
   
-  // Test Prep Specifics
+  // ============================================
+  // EXAM SCHEDULER (NEW)
+  // ============================================
+  
+  /**
+   * examPhase: Current exam preparation phase
+   * Determined by days until test:
+   * - MAINTENANCE: > 30 days, R_target = 75%
+   * - CONSOLIDATION: 7-30 days, R_target = 75-95%
+   * - CRAM: 1-7 days, R_target = 95-99%
+   * - EXAM_DAY: Test day
+   * - POST_EXAM: After test date
+   */
+  examPhase?: ExamPhase;
+  
+  /**
+   * desiredRetention: User's target retention rate (0.85-0.95)
+   * Higher = more reviews, better retention
+   * Default: 0.90 (90%)
+   */
+  desiredRetention?: number;
+  
+  // ============================================
+  // LOAD BALANCING (NEW)
+  // ============================================
+  
+  /**
+   * maxCardsPerDay: Maximum total cards per day for this deck
+   * 0 = unlimited
+   */
+  maxCardsPerDay?: number;
+  
+  /**
+   * newCardsPerDay: New cards per day limit
+   * Default: 20
+   */
+  newCardsPerDay?: number;
+  
+  /**
+   * easyDays: Days with reduced load (weekends, holidays)
+   */
+  easyDays?: EasyDay[];
+  
+  /**
+   * insertionOrder: How new cards are ordered
+   * - SEQUENTIAL: In order of creation
+   * - RANDOM: Shuffled
+   */
+  insertionOrder?: InsertionOrder;
+  
+  // ============================================
+  // TEST PREP SPECIFICS
+  // ============================================
+  
   finalReviewMode?: boolean;
   emergencyMode?: boolean;
   postTestDialogShown?: boolean;
@@ -266,7 +396,7 @@ export interface ReviewHistory {
   /**
    * reviewTimeMs: Answer time in milliseconds
    * 
-   * Future use:
+   * Uses:
    * - Cheating detection (< 1 second = suspicious)
    * - Analytics (average time per card)
    * - FSRS optimization (fast = easy, slow = hard)
@@ -277,6 +407,12 @@ export interface ReviewHistory {
   state: FSRSState;
   stability: number;
   difficulty: number;
+  
+  /**
+   * easeFactor: Ease Factor at time of review
+   * For tracking Ease Hell and recovery
+   */
+  easeFactor?: number;
 }
 
 // ============================================================================

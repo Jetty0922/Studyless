@@ -13,6 +13,7 @@ import { useTheme } from "../utils/useTheme";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { GlassCard } from "../components/ui";
+import { isAdmin } from "../config/admin";
 
 const DAILY_GOAL_OPTIONS = [10, 20, 30, 50, 100];
 
@@ -265,6 +266,24 @@ export default function SettingsScreen() {
                 <Ionicons name="chevron-forward" size={20} color={isDark ? "#64748b" : "#94a3b8"} />
               </Pressable>
             </GlassCard>
+
+            {/* Admin Debug (only for admins) */}
+            {isAdmin(user?.email) && (
+              <GlassCard style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: "#22c55e" }]}>Admin Tools</Text>
+
+                <Pressable onPress={() => navigation.navigate("AdminDebug")} style={styles.settingRow}>
+                  <View style={[styles.iconContainer, { backgroundColor: isDark ? "rgba(34, 197, 94, 0.2)" : "#dcfce7" }]}>
+                    <Ionicons name="bug" size={20} color="#22c55e" />
+                  </View>
+                  <View style={styles.settingInfo}>
+                    <Text style={[styles.settingTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Debug Tools</Text>
+                    <Text style={[styles.settingSubtitle, { color: isDark ? "#64748b" : "#94a3b8" }]}>Reset deck, force due, time travel</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={isDark ? "#64748b" : "#94a3b8"} />
+                </Pressable>
+              </GlassCard>
+            )}
 
             {/* Danger Zone */}
             <GlassCard style={styles.section}>
