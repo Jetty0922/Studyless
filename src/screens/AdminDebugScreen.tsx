@@ -36,6 +36,8 @@ export default function AdminDebugScreen() {
   const forceAllDue = useFlashcardStore((s) => s.forceAllDue);
   const timeTravelDeck = useFlashcardStore((s) => s.timeTravelDeck);
   const updateDeck = useFlashcardStore((s) => s.updateDeck);
+  const recalculateTestPrepSchedules = useFlashcardStore((s) => s.recalculateTestPrepSchedules);
+  const simulateDaysPassing = useFlashcardStore((s) => s.simulateDaysPassing);
   
   const [selectedDeckId, setSelectedDeckId] = useState<string | null>(
     decks.length > 0 ? decks[0].id : null
@@ -140,10 +142,37 @@ export default function AdminDebugScreen() {
       }
       
       await updateDeck(selectedDeckId, { testDate: newTestDate });
+      // Recalculate all card schedules based on new test date/phase
+      await recalculateTestPrepSchedules(selectedDeckId);
+      
       const daysLeft = Math.ceil((newTestDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-      Alert.alert("Success", `Test date moved to ${newTestDate.toLocaleDateString()} (${daysLeft} days away)`);
+      Alert.alert("Success", `Test date moved to ${newTestDate.toLocaleDateString()} (${daysLeft} days away). Card schedules recalculated.`);
     } catch (e) {
       Alert.alert("Error", "Failed to update test date");
+    }
+    setIsLoading(false);
+  };
+  
+  const handleSimulateDaysPassing = async (days: number) => {
+    if (!selectedDeckId || !selectedDeck) return;
+    
+    setIsLoading(true);
+    try {
+      await simulateDaysPassing(selectedDeckId, days);
+      
+      // Get updated deck info
+      const updatedDeck = decks.find(d => d.id === selectedDeckId);
+      if (updatedDeck?.testDate) {
+        const newDaysLeft = Math.ceil((new Date(updatedDeck.testDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+        Alert.alert(
+          "Simulation Complete",
+          `Simulated ${days} days passing.\n\nTest is now ${newDaysLeft} days away.\nAll card schedules have been recalculated.`
+        );
+      } else {
+        Alert.alert("Simulation Complete", `Simulated ${days} days passing. Card dates shifted.`);
+      }
+    } catch (e) {
+      Alert.alert("Error", "Failed to simulate time passing");
     }
     setIsLoading(false);
   };
@@ -315,6 +344,24 @@ export default function AdminDebugScreen() {
                             style={[styles.timeButton, { backgroundColor: colors.warning + '30', borderColor: colors.warning }]}
                           >
                             <Text style={{ color: colors.warning, fontWeight: "600" }}>-{days}d</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      
+                      <Text style={[styles.subTitle, { color: colors.textSecondary, marginTop: 20 }]}>
+                        Simulate Days Passing (full simulation)
+                      </Text>
+                      <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+                        Moves test date closer + shifts card dates + recalculates schedules
+                      </Text>
+                      <View style={styles.timeButtonsRow}>
+                        {[1, 3, 7, 14].map((days) => (
+                          <Pressable
+                            key={`sim-${days}`}
+                            onPress={() => handleSimulateDaysPassing(days)}
+                            style={[styles.timeButton, { backgroundColor: colors.success + '30', borderColor: colors.success }]}
+                          >
+                            <Text style={{ color: colors.success, fontWeight: "600" }}>+{days}d</Text>
                           </Pressable>
                         ))}
                       </View>
@@ -531,6 +578,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 8,
     fontWeight: "500",
+  },
+  helperText: {
+    fontSize: 12,
+    marginBottom: 8,
+    fontStyle: "italic",
   },
   clearButton: {
     alignSelf: "flex-start",

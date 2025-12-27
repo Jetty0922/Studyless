@@ -26,6 +26,7 @@ export default function DeckSettingsScreen() {
   const updateDeck = useFlashcardStore((s) => s.updateDeck);
   const deleteDeck = useFlashcardStore((s) => s.deleteDeck);
   const toggleLongTermMode = useFlashcardStore((s) => s.toggleLongTermMode);
+  const recalculateTestPrepSchedules = useFlashcardStore((s) => s.recalculateTestPrepSchedules);
 
   const deck = decks.find((d) => d.id === deckId);
   const [showEditName, setShowEditName] = useState(false);
@@ -66,15 +67,21 @@ export default function DeckSettingsScreen() {
       if (Platform.OS === "android") {
         if (pendingModeSwitch === "TEST_PREP") {
           // Android: immediately switch mode with selected date
-          updateDeck(deckId, { 
-            mode: "TEST_PREP", 
-            testDate: date 
-          });
+          (async () => {
+            await updateDeck(deckId, { 
+              mode: "TEST_PREP", 
+              testDate: date 
+            });
+            await recalculateTestPrepSchedules(deckId);
+          })();
           setPendingModeSwitch(null);
         } else {
           Alert.alert("Change Test Date", "This will recalculate review schedules for all cards. Continue?", [
             { text: "Cancel", style: "cancel" },
-            { text: "Change", onPress: () => updateDeck(deckId, { testDate: date }) },
+            { text: "Change", onPress: async () => {
+              await updateDeck(deckId, { testDate: date });
+              await recalculateTestPrepSchedules(deckId);
+            }},
           ]);
         }
       }
@@ -84,15 +91,17 @@ export default function DeckSettingsScreen() {
     }
   };
 
-  const handleConfirmDateChange = () => {
+  const handleConfirmDateChange = async () => {
     setShowDatePicker(false);
     
     // Check if this is for a mode switch
     if (pendingModeSwitch === "TEST_PREP") {
-      updateDeck(deckId, { 
+      await updateDeck(deckId, { 
         mode: "TEST_PREP", 
         testDate: selectedDate 
       });
+      // Recalculate schedules for the new test date
+      await recalculateTestPrepSchedules(deckId);
       setPendingModeSwitch(null);
       return;
     }
@@ -100,7 +109,11 @@ export default function DeckSettingsScreen() {
     // Regular date change for existing TEST_PREP deck
     Alert.alert("Change Test Date", "This will recalculate review schedules for all cards. Continue?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Change", onPress: () => updateDeck(deckId, { testDate: selectedDate }) },
+      { text: "Change", onPress: async () => {
+        await updateDeck(deckId, { testDate: selectedDate });
+        // Recalculate schedules based on new test date
+        await recalculateTestPrepSchedules(deckId);
+      }},
     ]);
   };
 
