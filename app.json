@@ -31,7 +31,9 @@
         "@sentry/react-native/expo",
         {
           "organization": "studyless",
-          "project": "studyless-mobile"
+          "project": "studyless-mobile",
+          "setCommits": false,
+          "uploadSourceMaps": false
         }
       ]
     ],
