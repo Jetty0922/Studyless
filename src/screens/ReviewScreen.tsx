@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,6 +27,7 @@ export default function ReviewScreen() {
   const debugMode = useFlashcardStore((s) => s.debugMode);
 
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
@@ -183,10 +184,9 @@ export default function ReviewScreen() {
   const progress = ((currentIndex + 1) / sessionCards.length) * 100;
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-        {/* Header */}
-        <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      {/* Header */}
+      <View style={styles.header}>
           <Pressable onPress={handleClose} style={styles.closeButton}>
             <Ionicons name="close" size={24} color={colors.text} />
           </Pressable>
@@ -292,7 +292,6 @@ export default function ReviewScreen() {
             </View>
           </View>
         )}
-      </SafeAreaView>
     </View>
   );
 }

@@ -11,7 +11,7 @@ import {
   Platform,
   StyleSheet,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,6 +27,7 @@ type EditorRouteProp = RouteProp<RootStackParamList, "FlashcardEditor">;
 
 export default function FlashcardEditorScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<EditorRouteProp>();
   const { deckId, cardId } = route.params;
@@ -138,10 +139,9 @@ export default function FlashcardEditorScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-        {/* Header */}
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+      {/* Header */}
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Pressable onPress={handleClose} hitSlop={8}>
             <Ionicons name="close" size={24} color={colors.text} />
           </Pressable>
@@ -229,9 +229,11 @@ export default function FlashcardEditorScreen() {
                 <Text style={styles.deleteBtnText}>Delete Card</Text>
               </Pressable>
             )}
+            
+            {/* Bottom padding for safe area */}
+            <View style={{ height: insets.bottom + 20 }} />
           </ScrollView>
         </KeyboardAvoidingView>
-      </SafeAreaView>
     </View>
   );
 }
