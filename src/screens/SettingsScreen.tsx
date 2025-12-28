@@ -109,21 +109,58 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = async () => {
-    if (deleteConfirmText !== "DELETE") { Alert.alert("Error", "Please type DELETE to confirm."); return; }
+    if (deleteConfirmText !== "DELETE") { 
+      Alert.alert("Error", "Please type DELETE to confirm."); 
+      return; 
+    }
     setIsDeleting(true);
     try {
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-      if (currentUser) {
-        await supabase.from('flashcards').delete().eq('user_id', currentUser.id);
-        await supabase.from('decks').delete().eq('user_id', currentUser.id);
-        await supabase.from('profiles').delete().eq('id', currentUser.id);
+      // Get the current session for auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error("Not authenticated");
       }
+
+      // Call Edge Function to delete user and all data
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const response = await fetch(`${supabaseUrl}/functions/v1/delete-user`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete account');
+      }
+
+      // Clear local state
+      useFlashcardStore.setState({ 
+        decks: [], 
+        flashcards: [], 
+        stats: { 
+          currentStreak: 0, 
+          longestStreak: 0, 
+          totalCardsReviewed: 0, 
+          dailyGoal: 20, 
+          cardsReviewedToday: 0 
+        }, 
+        hasCompletedOnboarding: false 
+      });
+      
+      // Sign out (will clear session)
       await signOut();
-      useFlashcardStore.setState({ decks: [], flashcards: [], stats: { currentStreak: 0, longestStreak: 0, totalCardsReviewed: 0, dailyGoal: 20, cardsReviewedToday: 0 }, hasCompletedOnboarding: false });
+      
       setShowDeleteModal(false);
-      Alert.alert("Account Deleted", "Your account has been deleted.");
+      setDeleteConfirmText("");
+      Alert.alert("Account Deleted", "Your account and all data have been permanently deleted.");
     } catch (error: any) { 
-      Alert.alert("Error", error.message || "Failed to delete account."); 
+      console.error("Delete account error:", error);
+      Alert.alert("Error", error.message || "Failed to delete account. Please try again."); 
     } finally { 
       setIsDeleting(false); 
     }

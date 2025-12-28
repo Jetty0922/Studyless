@@ -75,8 +75,8 @@ export default function ProgressScreen() {
                 <Text style={[styles.statValue, { color: colors.text }]}>{totalCards}</Text>
                 <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Cards</Text>
               </Card>
-            </View>
-
+                        </View>
+                        
             {/* Weekly Activity */}
             <Card variant="outlined">
               <Text style={[styles.cardTitle, { color: colors.text }]}>Weekly Activity</Text>

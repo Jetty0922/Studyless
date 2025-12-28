@@ -13,6 +13,7 @@
     "backend/node_modules",
     "backend/generated",
     ".expo",
-    "generate-asset-script.ts"
+    "generate-asset-script.ts",
+    "supabase/functions"
   ]
 }

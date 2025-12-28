@@ -3,6 +3,7 @@ import { Session, User } from "@supabase/supabase-js";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from "../lib/supabase";
 import { useFlashcardStore } from "../state/flashcardStore";
+import { resetAnalytics, identifyUser } from "../services/analytics";
 
 type AuthContextType = {
   session: Session | null;
@@ -93,6 +94,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           
           // Sync data from Supabase when user signs in
           if (event === 'SIGNED_IN') {
+            // Identify user for analytics
+            identifyUser(session.user.id);
+            
             try {
               await useFlashcardStore.getState().syncWithSupabase();
             } catch (e) {
@@ -131,6 +135,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (e) {
         console.error("Sign out failed", e);
     }
+    
+    // Reset analytics to clear user identity
+    resetAnalytics();
     
     // Explicitly reset onboarding only on manual sign out
     useFlashcardStore.setState({ hasCompletedOnboarding: false });

@@ -127,8 +127,40 @@ export default function AuthScreen({ navigation }: AuthScreenProps) {
     }
   };
 
-  const handleForgotPassword = () => {
-    Alert.alert("Reset Password", "Password reset functionality coming soon.");
+  const handleForgotPassword = async () => {
+    if (!email || !email.trim()) {
+      Alert.alert("Enter Email", "Please enter your email address first, then tap 'Forgot password?'");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: 'studyless://reset-password',
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      Alert.alert(
+        "Check Your Email",
+        "We've sent you a password reset link. Please check your email and follow the instructions to reset your password.",
+        [{ text: "OK" }]
+      );
+    } catch (error: any) {
+      // Don't reveal if email exists or not for security
+      if (error.message?.includes('rate limit')) {
+        Alert.alert("Too Many Requests", "Please wait a few minutes before requesting another reset link.");
+      } else {
+        Alert.alert(
+          "Check Your Email", 
+          "If an account exists with this email, you'll receive a password reset link."
+        );
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const openTerms = () => {
