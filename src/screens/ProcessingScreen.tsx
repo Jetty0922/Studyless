@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Easing } from "react-native";
+import { View, Text, StyleSheet, Animated, Easing, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -7,6 +7,7 @@ import { RouteProp } from "@react-navigation/native";
 import { OnboardingStackParamList } from "../navigation/RootNavigator";
 import { useTheme } from "../utils/useTheme";
 import { generateFlashcardsFromFile } from "../utils/aiFlashcardGenerator";
+import { trackAIGeneration } from "../services/analytics";
 
 type ProcessingScreenProps = {
   navigation: NativeStackNavigationProp<OnboardingStackParamList, "ProcessingScreen">;
@@ -49,12 +50,20 @@ export default function ProcessingScreen({ navigation, route }: ProcessingScreen
       try {
         setStatus("Analyzing content...");
         const mimeType = type === 'pdf' ? 'application/pdf' : 'image/jpeg';
+        const source = type === 'pdf' ? 'pdf' : 'image';
         const cards = await generateFlashcardsFromFile(uri, mimeType);
+        
+        // Track successful AI generation
+        trackAIGeneration(source, true, cards.length);
         
         setStatus("Finalizing...");
         navigation.replace("CardsGenerated", { sourceUri: uri, cardCount: cards.length, cards: cards, type: type || 'image' });
       } catch (error: any) {
         console.error("Processing error:", error);
+        // Track failed AI generation
+        const source = type === 'pdf' ? 'pdf' : 'image';
+        trackAIGeneration(source, false, undefined, error.message);
+        Alert.alert("Generation Failed", error.message || "Failed to generate flashcards. Please try again.");
         navigation.goBack();
       }
     };

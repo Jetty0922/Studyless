@@ -11,6 +11,7 @@ import { RootStackParamList } from "../navigation/RootNavigator";
 import { useTheme } from "../utils/useTheme";
 import { GeneratedFlashcard, generateFlashcardsFromImage, generateFlashcardsFromFile } from "../utils/aiFlashcardGenerator";
 import { Card, Button } from "../components/ui";
+import { trackFlashcardsCreated, trackDeckCreated, trackAIGeneration } from "../services/analytics";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type DeckSelectionScreenProps = { route: { params: { flashcards: GeneratedFlashcard[]; sourceUri?: string; }; }; };
@@ -99,6 +100,8 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
     try {
       setIsAdding(true);
       await addFlashcardsBatch(deckId, flashcardsList.map((card) => ({ front: card.front, back: card.back })));
+      // Track AI cards added to existing deck
+      trackFlashcardsCreated(flashcardsList.length, 'ai_image');
       Alert.alert("Success!", `Added ${flashcardsList.length} flashcards to the deck.`, [{ 
         text: "OK", 
         onPress: () => navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] })
@@ -113,6 +116,11 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
       setIsAdding(true);
       const deckId = await addDeck(newDeckName, selectedColor, selectedEmoji, deckMode === "TEST_PREP" ? testDate : undefined, deckMode);
       await addFlashcardsBatch(deckId, flashcardsList.map((card) => ({ front: card.front, back: card.back })));
+      
+      // Track analytics
+      trackDeckCreated(deckId, deckMode === "TEST_PREP" && !!testDate);
+      trackFlashcardsCreated(flashcardsList.length, 'ai_image');
+      
       setShowCreateModal(false);
       const resetDate = defaultTestDate;
       setTestDate(resetDate);

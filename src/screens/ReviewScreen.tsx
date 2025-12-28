@@ -10,6 +10,7 @@ import { ReviewRating, Flashcard } from "../types/flashcard";
 import { useTheme } from "../utils/useTheme";
 import { getIntervalPreviews } from "../utils/spacedRepetition";
 import { getCardDebugInfo } from "../utils/debugTools";
+import { trackReviewCompleted } from "../services/analytics";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -35,6 +36,10 @@ export default function ReviewScreen() {
   
   // Review time tracking - start timer when card is shown
   const cardShowTimeRef = useRef<number>(Date.now());
+  
+  // Session tracking for analytics
+  const sessionStartTime = useRef<number>(Date.now());
+  const ratingCounts = useRef({ again: 0, hard: 0, good: 0, easy: 0 });
 
   const flipAnim = useRef(new Animated.Value(0)).current;
 
@@ -122,12 +127,20 @@ export default function ReviewScreen() {
     } else {
       // GOOD, EASY, or HARD during review: Remove from session
       reviewFlashcard(currentCard.id, rating, reviewTimeMs);
+      
+      // Track rating for analytics
+      const ratingKey = rating.toLowerCase() as 'again' | 'hard' | 'good' | 'easy';
+      ratingCounts.current[ratingKey]++;
+      
       setReviewedCount(reviewedCount + 1);
       if (currentIndex < sessionCards.length - 1) {
         setCurrentIndex(currentIndex + 1);
         setShowAnswer(false);
         flipAnim.setValue(0);
       } else {
+        // Session complete - track analytics
+        const sessionDuration = Math.round((Date.now() - sessionStartTime.current) / 1000);
+        trackReviewCompleted(reviewedCount + 1, sessionDuration, ratingCounts.current);
         navigation.goBack();
       }
     }

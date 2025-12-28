@@ -20,6 +20,7 @@ import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { useTheme } from "../utils/useTheme";
 import { Card } from "../components/ui";
+import { trackFlashcardsCreated } from "../services/analytics";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type EditorRouteProp = RouteProp<RootStackParamList, "FlashcardEditor">;
@@ -95,6 +96,8 @@ export default function FlashcardEditorScreen() {
         navigation.goBack();
       } else {
         await addFlashcard(deckId, front.trim(), back.trim(), answerImage);
+        // Track manual card creation
+        trackFlashcardsCreated(1, 'manual');
         // Clear form for next card
         setFront("");
         setBack("");

@@ -13,6 +13,7 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { Card } from "../components/ui";
 import { isAdmin } from "../config/admin";
+import { trackFeatureUsed, trackEvent } from "../services/analytics";
 
 const DAILY_GOAL_OPTIONS = [10, 20, 30, 50, 100];
 

@@ -12,6 +12,7 @@ import { SortMenu } from "../components/SortMenu";
 import { Card, Button } from "../components/ui";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { getMastery } from "../utils/spacedRepetition";
+import { trackDeckCreated } from "../services/analytics";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type DeckSortOption = "testDate" | "name" | "progress";
@@ -72,6 +73,10 @@ export default function DecksListScreen() {
     setIsCreating(true);
     try {
       const deckId = await addDeck(newDeckName.trim(), selectedColor, undefined, deckMode === "TEST_PREP" ? testDate : undefined, deckMode);
+      
+      // Track deck creation
+      trackDeckCreated(deckId, deckMode === "TEST_PREP" && !!testDate);
+      
       setNewDeckName(""); 
       setSelectedColor(DECK_COLORS[0]); 
       setDeckMode("TEST_PREP"); 

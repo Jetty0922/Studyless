@@ -25,6 +25,7 @@ import {
   generateFlashcardsFromImage,
   generateFlashcardsFromFile,
 } from "../utils/aiFlashcardGenerator";
+import { trackAIGeneration } from "../services/analytics";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -87,7 +88,10 @@ export default function HomeScreen() {
     
     try {
       let generatedCards;
-      if (mimeType?.startsWith("image/") || uri.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)) {
+      const isImage = mimeType?.startsWith("image/") || uri.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
+      const source = isImage ? 'image' : (mimeType?.includes('pdf') ? 'pdf' : 'text');
+      
+      if (isImage) {
         setGeneratingMessage("Reading image...");
         generatedCards = await Promise.race([generateFlashcardsFromImage(uri), timeoutPromise]);
       } else {
@@ -95,11 +99,17 @@ export default function HomeScreen() {
         generatedCards = await Promise.race([generateFlashcardsFromFile(uri, mimeType), timeoutPromise]);
       }
       if (generatedCards.length === 0) {
+        trackAIGeneration(source, false, 0, "No content found");
         Alert.alert("No Content Found", "Could not generate flashcards from this file.");
         return;
       }
+      // Track successful generation
+      trackAIGeneration(source, true, generatedCards.length);
       navigation.navigate("DeckSelection", { flashcards: generatedCards, sourceUri: uri });
     } catch (error: any) {
+      const isImage = mimeType?.startsWith("image/") || uri.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
+      const source = isImage ? 'image' : (mimeType?.includes('pdf') ? 'pdf' : 'text');
+      trackAIGeneration(source, false, undefined, error.message);
       Alert.alert("Generation Failed", error.message || "Could not generate flashcards. Please try again.");
     } finally {
       setIsGenerating(false);

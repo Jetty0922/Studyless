@@ -10,6 +10,7 @@ import { OnboardingStackParamList } from "../navigation/RootNavigator";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { useTheme } from "../utils/useTheme";
 import { Card } from "../components/ui";
+import { trackFlashcardsCreated, trackDeckCreated } from "../services/analytics";
 
 // Same colors as DecksListScreen
 const DECK_COLORS = ["#667eea", "#8b5cf6", "#ec4899", "#f97316", "#10b981", "#ef4444"];
@@ -101,6 +102,12 @@ export default function CardsGeneratedScreen({ navigation, route }: CardsGenerat
         imageUri: undefined
       }));
       await addFlashcardsBatch(deckId, finalCards);
+      
+      // Track analytics
+      trackDeckCreated(deckId, deckMode === "TEST_PREP" && !!testDate);
+      const aiSource = type === 'pdf' ? 'ai_pdf' : 'ai_image';
+      trackFlashcardsCreated(editableCards.length, aiSource);
+      
       await completeOnboarding();
     } catch {
       Alert.alert("Error", "Failed to create deck");
