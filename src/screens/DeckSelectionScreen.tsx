@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, ScrollView, TextInput, Modal, Alert, ActivityIndicator, Platform, StyleSheet, KeyboardAvoidingView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,7 +10,7 @@ import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { useTheme } from "../utils/useTheme";
 import { GeneratedFlashcard, generateFlashcardsFromImage, generateFlashcardsFromFile } from "../utils/aiFlashcardGenerator";
-import { GlassCard, GradientButton } from "../components/ui";
+import { Card, Button } from "../components/ui";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type DeckSelectionScreenProps = { route: { params: { flashcards: GeneratedFlashcard[]; sourceUri?: string; }; }; };
@@ -32,7 +31,7 @@ function PreviewCard({ card, index, isDark, onEdit, onDelete }: PreviewCardProps
   const [isFlipped, setIsFlipped] = useState(false);
 
   return (
-    <GlassCard style={styles.previewCard} padding={0}>
+    <Card style={styles.previewCard} padding={0}>
       <Pressable onPress={() => setIsFlipped(!isFlipped)} style={styles.previewCardContent}>
         <View style={styles.previewCardHeader}>
           <Text style={[styles.cardNumber, { color: isDark ? "#64748b" : "#94a3b8" }]}>
@@ -66,7 +65,7 @@ function PreviewCard({ card, index, isDark, onEdit, onDelete }: PreviewCardProps
           <Text style={[styles.cardActionText, { color: "#ef4444" }]}>Remove</Text>
         </Pressable>
       </View>
-    </GlassCard>
+    </Card>
   );
 }
 
@@ -99,7 +98,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
   const handleSelectDeck = async (deckId: string) => {
     try {
       setIsAdding(true);
-      await addFlashcardsBatch(deckId, flashcardsList.map((card) => ({ front: card.front, back: card.back, imageUri: sourceUri })));
+      await addFlashcardsBatch(deckId, flashcardsList.map((card) => ({ front: card.front, back: card.back })));
       Alert.alert("Success!", `Added ${flashcardsList.length} flashcards to the deck.`, [{ 
         text: "OK", 
         onPress: () => navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] })
@@ -113,7 +112,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
     try {
       setIsAdding(true);
       const deckId = await addDeck(newDeckName, selectedColor, selectedEmoji, deckMode === "TEST_PREP" ? testDate : undefined, deckMode);
-      await addFlashcardsBatch(deckId, flashcardsList.map((card) => ({ front: card.front, back: card.back, imageUri: sourceUri })));
+      await addFlashcardsBatch(deckId, flashcardsList.map((card) => ({ front: card.front, back: card.back })));
       setShowCreateModal(false);
       const resetDate = defaultTestDate;
       setTestDate(resetDate);
@@ -217,19 +216,14 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
 
   if (isAdding) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} />
-        <View style={styles.loadingContainer}><ActivityIndicator size="large" color="#667eea" /><Text style={[styles.loadingText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Adding flashcards...</Text></View>
+      <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
+        <View style={styles.loadingContainer}><ActivityIndicator size="large" color="#2563EB" /><Text style={[styles.loadingText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Adding flashcards...</Text></View>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-      <View style={[styles.floatingShape, styles.shape1, { backgroundColor: isDark ? "#667eea" : "#a5b4fc" }]} />
-      <View style={[styles.floatingShape, styles.shape2, { backgroundColor: isDark ? "#f093fb" : "#c4b5fd" }]} />
-
+    <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         {/* Header */}
         <View style={styles.header}>
@@ -239,8 +233,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
           </View>
           <View style={{ flexDirection: "row", gap: 8 }}>
             {sourceUri && (
-              <Pressable onPress={handleRegenerateAll} disabled={isRegenerating} style={styles.headerButton}>
-                <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+              <Pressable onPress={handleRegenerateAll} disabled={isRegenerating} style={[styles.headerButton, { backgroundColor: "#2563EB" }]}>
                 {isRegenerating ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="refresh" size={20} color="white" />}
               </Pressable>
             )}
@@ -287,7 +280,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
             )}
 
             {/* Create New Deck */}
-            <GradientButton title="Create New Deck" onPress={() => setShowCreateModal(true)} size="large" icon={<Ionicons name="add-circle" size={22} color="white" />} style={{ marginTop: 24, marginBottom: 16 }} />
+            <Button title="Create New Deck" onPress={() => setShowCreateModal(true)} size="large" icon={<Ionicons name="add-circle" size={22} color="white" />} style={{ marginTop: 24, marginBottom: 16 }} />
 
             {/* Existing Decks */}
             {decks.length > 0 && (
@@ -296,7 +289,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
                 <View style={{ gap: 12 }}>
                   {decks.map((deck) => (
                     <Pressable key={deck.id} onPress={() => handleSelectDeck(deck.id)}>
-                      <GlassCard padding={16}>
+                      <Card padding={16}>
                         <View style={styles.deckRow}>
                           <View style={[styles.deckIcon, { backgroundColor: deck.color }]}><Text style={{ fontSize: 24 }}>{deck.emoji || "📚"}</Text></View>
                           <View style={{ flex: 1 }}>
@@ -305,7 +298,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
                           </View>
                           <Ionicons name="chevron-forward" size={24} color={isDark ? "#64748b" : "#94a3b8"} />
                         </View>
-                      </GlassCard>
+                      </Card>
                     </Pressable>
                   ))}
                 </View>
@@ -447,8 +440,7 @@ export default function DeckSelectionScreen({ route }: DeckSelectionScreenProps)
               }]}
             />
             
-            <Pressable onPress={handleSaveEdit} style={styles.saveEditButton}>
-              <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+            <Pressable onPress={handleSaveEdit} style={[styles.saveEditButton, { backgroundColor: "#2563EB" }]}>
               <Text style={styles.saveEditButtonText}>Save Changes</Text>
             </Pressable>
           </View>

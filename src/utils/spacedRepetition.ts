@@ -1049,7 +1049,7 @@ export function calculateLongTermReview(
     scheduled_days: card.stability || 0,
     reps: card.reps || 0,
     lapses: card.lapses || 0,
-    state: card.state || State.Review,
+    state: (card.state ?? State.Review) as unknown as State,
     last_review: lastReviewDate ? new Date(lastReviewDate) : undefined,
     learning_steps: 0,
   };
@@ -1088,7 +1088,7 @@ export function calculateLongTermReview(
   return {
     stability: fuzzedDays,
     difficulty: result.difficulty,
-    state: result.state as FSRSState,
+    state: result.state as unknown as FSRSState,
     nextReviewDate: nextReview,
     mastery,
     reps: (card.reps || 0) + 1,
@@ -1109,8 +1109,9 @@ export function reviewCard(
   rating: ReviewRating,
   now: Date = new Date()
 ): Partial<Flashcard> {
-  // Learning or Relearning phase
-  if (card.learningState !== 'GRADUATED') {
+  // Learning or Relearning phase - treat undefined as LEARNING (new card)
+  const learningState = card.learningState || 'LEARNING';
+  if (learningState !== 'GRADUATED') {
     return calculateLearningReview(card, rating, now);
   }
   
@@ -1610,8 +1611,9 @@ function formatSeconds(seconds: number): string {
  * Get interval previews for all ratings
  */
 export function getIntervalPreviews(card: Flashcard): IntervalPreview {
-  // Check learning state first
-  if (card.learningState !== 'GRADUATED') {
+  // Check learning state first - treat undefined as LEARNING (new card)
+  const learningState = card.learningState || 'LEARNING';
+  if (learningState !== 'GRADUATED') {
     return getLearningIntervalPreviews(card);
   }
   
@@ -1737,7 +1739,7 @@ function getLongTermIntervalPreviews(card: Flashcard): IntervalPreview {
     elapsed_days: lastReviewDate ? daysBetween(new Date(lastReviewDate), now) : 0,
     scheduled_days: card.stability || 0,
     reps: card.reps || 0,
-    state: card.state || State.Review,
+    state: (card.state ?? State.Review) as unknown as State,
     last_review: lastReviewDate ? new Date(lastReviewDate) : undefined,
     lapses: card.lapses || 0,
     learning_steps: 0,

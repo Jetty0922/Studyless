@@ -1,13 +1,12 @@
 import React, { useEffect, useRef } from "react";
 import { View, Text, Pressable, Alert, StyleSheet, Animated } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from 'expo-document-picker';
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { OnboardingStackParamList } from "../navigation/RootNavigator";
 import { useFlashcardStore } from "../state/flashcardStore";
-import { GradientButton } from "../components/ui";
+import { Button, Card } from "../components/ui";
 import { useTheme } from "../utils/useTheme";
 
 type FirstActionScreenProps = {
@@ -15,26 +14,18 @@ type FirstActionScreenProps = {
 };
 
 export default function FirstActionScreen({ navigation }: FirstActionScreenProps) {
-  const { isDark } = useTheme();
+  const { colors, isDark } = useTheme();
   const completeOnboarding = useFlashcardStore((s) => s.completeOnboarding);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [fadeAnim, slideAnim]);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
 
   const handleScanNow = () => {
     navigation.navigate("CameraScreen");
@@ -66,98 +57,66 @@ export default function FirstActionScreen({ navigation }: FirstActionScreenProps
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={isDark ? ["#0f172a", "#1e1b4b", "#312e81"] : ["#f8fafc", "#eef2ff", "#e0e7ff"]}
-        style={StyleSheet.absoluteFillObject}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-
-
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
-          {/* Icon */}
-          <Animated.View
-            style={[
-              styles.illustrationContainer,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }],
-              },
-            ]}
-          >
-            <View style={[styles.iconCircle, { backgroundColor: isDark ? "rgba(79, 172, 254, 0.2)" : "rgba(79, 172, 254, 0.15)" }]}>
-              <Ionicons name="camera" size={70} color="#4facfe" />
-            </View>
-          </Animated.View>
-
-          {/* Title */}
-          <Animated.View
-            style={{
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            }}
-          >
-            <Text style={[styles.title, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>
-              Create your first cards
+          {/* Header */}
+          <Animated.View style={[styles.header, { opacity: fadeAnim }]}>
+            <Text style={[styles.title, { color: colors.text }]}>
+              Create Your First Cards
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              Upload your notes and our AI will create flashcards for you
             </Text>
           </Animated.View>
 
-          {/* Description */}
-          <Animated.View
-            style={{
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            }}
-          >
-            <Text style={[styles.description, { color: isDark ? "#94a3b8" : "#64748b" }]}>
-              Got notes from class today? Let’s turn them into flashcards with AI!
-            </Text>
+          {/* Options */}
+          <Animated.View style={[styles.optionsContainer, { opacity: fadeAnim }]}>
+            <Card variant="outlined" padding={0} style={styles.optionCard}>
+              <Pressable onPress={handleScanNow} style={styles.optionContent}>
+                <View style={[styles.optionIcon, { backgroundColor: colors.primaryLight }]}>
+                  <Ionicons name="camera-outline" size={28} color={colors.primary} />
+                </View>
+                <View style={styles.optionText}>
+                  <Text style={[styles.optionTitle, { color: colors.text }]}>Take a Photo</Text>
+                  <Text style={[styles.optionDescription, { color: colors.textSecondary }]}>
+                    Snap your notes, textbook, or slides
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              </Pressable>
+            </Card>
+
+            <Card variant="outlined" padding={0} style={styles.optionCard}>
+              <Pressable onPress={handleUploadPDF} style={styles.optionContent}>
+                <View style={[styles.optionIcon, { backgroundColor: colors.primaryLight }]}>
+                  <Ionicons name="document-outline" size={28} color={colors.primary} />
+                </View>
+                <View style={styles.optionText}>
+                  <Text style={[styles.optionTitle, { color: colors.text }]}>Upload PDF</Text>
+                  <Text style={[styles.optionDescription, { color: colors.textSecondary }]}>
+                    Import study materials from files
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              </Pressable>
+            </Card>
           </Animated.View>
 
           {/* Spacer */}
           <View style={styles.spacer} />
 
-          {/* Buttons */}
-          <Animated.View
-            style={[
-              styles.buttonContainer,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }],
-              },
-            ]}
-          >
-            <GradientButton
-              title="Take a Photo"
-              onPress={handleScanNow}
+          {/* Skip Button */}
+          <Animated.View style={[styles.footer, { opacity: fadeAnim }]}>
+            <Button
+              title="Skip for Now"
+              onPress={handleDoLater}
+              variant="ghost"
               size="large"
-              style={styles.button}
-              icon={<Ionicons name="camera" size={22} color="#ffffff" />}
             />
-
-            <Pressable
-              onPress={handleUploadPDF}
-              style={[
-                styles.secondaryButton,
-                {
-                  backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(102, 126, 234, 0.1)",
-                  borderColor: isDark ? "rgba(255,255,255,0.2)" : "#667eea",
-                },
-              ]}
-            >
-              <Ionicons name="document" size={20} color="#667eea" />
-              <Text style={[styles.secondaryButtonText, { color: "#667eea" }]}>
-                Upload PDF
-              </Text>
-            </Pressable>
-
-            <Pressable onPress={handleDoLater} style={styles.skipButton}>
-              <Text style={[styles.skipText, { color: isDark ? "#64748b" : "#94a3b8" }]}>
-                I’ll do this later
-              </Text>
-            </Pressable>
+            <Text style={[styles.skipHint, { color: colors.textSecondary }]}>
+              You can always add cards later from the home screen
+            </Text>
           </Animated.View>
         </View>
       </SafeAreaView>
@@ -175,68 +134,65 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    alignItems: "center",
-    justifyContent: "center",
+    paddingTop: 40,
   },
-  illustrationContainer: {
-    marginBottom: 32,
-  },
-  iconCircle: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(79, 172, 254, 0.3)",
+  header: {
+    marginBottom: 40,
   },
   title: {
-    fontSize: 32,
-    fontWeight: "800",
+    fontSize: 28,
+    fontWeight: "700",
     textAlign: "center",
+    marginBottom: 8,
     letterSpacing: -0.5,
   },
-  description: {
-    fontSize: 17,
+  subtitle: {
+    fontSize: 16,
     textAlign: "center",
-    lineHeight: 26,
-    marginTop: 16,
-    paddingHorizontal: 16,
+    lineHeight: 24,
+  },
+  optionsContainer: {
+    gap: 12,
+  },
+  optionCard: {
+    marginBottom: 0,
+  },
+  optionContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+  },
+  optionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 16,
+  },
+  optionText: {
+    flex: 1,
+  },
+  optionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  optionDescription: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   spacer: {
     flex: 1,
     minHeight: 40,
-    maxHeight: 80,
   },
-  buttonContainer: {
-    width: "100%",
+  footer: {
+    paddingBottom: 24,
     alignItems: "center",
-    paddingBottom: 20,
   },
-  button: {
-    width: "100%",
-  },
-  secondaryButton: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 18,
-    borderRadius: 28,
-    borderWidth: 2,
-    marginTop: 12,
-    gap: 8,
-  },
-  secondaryButtonText: {
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  skipButton: {
-    marginTop: 24,
-    paddingVertical: 8,
-  },
-  skipText: {
-    fontSize: 15,
-    fontWeight: "500",
+  skipHint: {
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: 8,
   },
 });

@@ -10,14 +10,13 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { useTheme } from "../utils/useTheme";
-import { GlassCard } from "../components/ui";
+import { Card } from "../components/ui";
 import { getDeckDebugInfo, formatIntervalLog } from "../utils/debugTools";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -130,15 +129,10 @@ export default function AdminDebugScreen() {
   };
   
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]}
-        style={StyleSheet.absoluteFillObject}
-      />
-      
+    <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
       <ScrollView contentContainerStyle={styles.content}>
         {/* Debug Mode Toggle */}
-        <GlassCard style={styles.section}>
+        <Card style={styles.section}>
           <View style={styles.toggleRow}>
             <View>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
@@ -154,10 +148,10 @@ export default function AdminDebugScreen() {
               trackColor={{ false: colors.border, true: colors.primary }}
             />
           </View>
-        </GlassCard>
+        </Card>
         
         {/* Deck Selector */}
-        <GlassCard style={styles.section}>
+        <Card style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
             Select Deck
           </Text>
@@ -186,12 +180,12 @@ export default function AdminDebugScreen() {
               </Pressable>
             ))}
           </ScrollView>
-        </GlassCard>
+        </Card>
         
         {selectedDeck && (
           <>
             {/* Deck Stats */}
-            <GlassCard style={styles.section}>
+            <Card style={styles.section}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
                 Deck Stats
               </Text>
@@ -231,10 +225,10 @@ export default function AdminDebugScreen() {
                   {(debugInfo.summary.avgRetrievability * 100).toFixed(1)}%
                 </Text>
               </View>
-            </GlassCard>
+            </Card>
             
             {/* Debug Actions */}
-            <GlassCard style={styles.section}>
+            <Card style={styles.section}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
                 Debug Actions
               </Text>
@@ -277,12 +271,12 @@ export default function AdminDebugScreen() {
                   </Pressable>
                 </>
               )}
-            </GlassCard>
+            </Card>
           </>
         )}
         
         {/* Interval Logs */}
-        <GlassCard style={styles.section}>
+        <Card style={styles.section}>
           <Pressable
             onPress={() => setShowLogs(!showLogs)}
             style={styles.toggleRow}
@@ -326,11 +320,11 @@ export default function AdminDebugScreen() {
               )}
             </>
           )}
-        </GlassCard>
+        </Card>
         
         {/* Card Debug Info */}
         {selectedDeck && debugMode && (
-          <GlassCard style={styles.section}>
+          <Card style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
               Card Details
             </Text>
@@ -362,7 +356,7 @@ export default function AdminDebugScreen() {
                 Showing 10 of {debugInfo.cards.length} cards
               </Text>
             )}
-          </GlassCard>
+          </Card>
         )}
       </ScrollView>
     </View>

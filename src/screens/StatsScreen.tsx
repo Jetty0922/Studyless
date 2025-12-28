@@ -1,11 +1,10 @@
 import React from "react";
 import { View, Text, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { useTheme } from "../utils/useTheme";
-import { GlassCard } from "../components/ui";
+import { Card } from "../components/ui";
 
 export default function StatsScreen() {
   const { isDark } = useTheme();
@@ -24,16 +23,7 @@ export default function StatsScreen() {
     : 0;
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]}
-        style={StyleSheet.absoluteFillObject}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-      <View style={[styles.floatingShape, styles.shape1, { backgroundColor: isDark ? "#667eea" : "#a5b4fc" }]} />
-      <View style={[styles.floatingShape, styles.shape2, { backgroundColor: isDark ? "#f093fb" : "#c4b5fd" }]} />
-
+    <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={styles.header}>
           <Text style={[styles.headerTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Statistics</Text>
@@ -41,31 +31,8 @@ export default function StatsScreen() {
 
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
-            {/* Streak Card */}
-            <GlassCard style={styles.card}>
-              <LinearGradient
-                colors={["#667eea", "#764ba2"]}
-                style={StyleSheet.absoluteFillObject}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                pointerEvents="none"
-              />
-              <View style={styles.streakHeader}>
-                <Text style={styles.streakLabel}>Current Streak</Text>
-                <Ionicons name="flame" size={28} color="#fbbf24" />
-              </View>
-              <Text style={styles.streakValue}>{stats.currentStreak}</Text>
-              <Text style={styles.streakSubtext}>
-                {stats.currentStreak === 1 ? "day" : "days"} in a row
-              </Text>
-              <View style={styles.streakDivider} />
-              <Text style={styles.longestStreak}>
-                Longest streak: {stats.longestStreak} {stats.longestStreak === 1 ? "day" : "days"}
-              </Text>
-            </GlassCard>
-
             {/* Daily Goal Card */}
-            <GlassCard style={styles.card}>
+            <Card style={styles.card}>
               <View style={styles.cardHeader}>
                 <Text style={[styles.cardTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Daily Goal</Text>
                 <View style={styles.goalProgress}>
@@ -79,48 +46,43 @@ export default function StatsScreen() {
               <Text style={[styles.progressText, { color: isDark ? "#64748b" : "#94a3b8" }]}>
                 {dailyProgress}% complete
               </Text>
-            </GlassCard>
+            </Card>
 
             {/* Stats Row */}
             <View style={styles.statsRow}>
-              <GlassCard style={styles.statCard}>
+              <Card style={styles.statCard}>
                 <View style={[styles.statIcon, { backgroundColor: isDark ? "rgba(139, 92, 246, 0.2)" : "#ede9fe" }]}>
                   <Ionicons name="layers" size={24} color="#8b5cf6" />
                 </View>
                 <Text style={[styles.statLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Total Cards</Text>
                 <Text style={[styles.statValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{totalCards}</Text>
-              </GlassCard>
+              </Card>
 
-              <GlassCard style={styles.statCard}>
+              <Card style={styles.statCard}>
                 <View style={[styles.statIcon, { backgroundColor: isDark ? "rgba(16, 185, 129, 0.2)" : "#d1fae5" }]}>
                   <Ionicons name="checkmark-done" size={24} color="#10b981" />
                 </View>
                 <Text style={[styles.statLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Mastered</Text>
                 <Text style={[styles.statValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{masteredCards}</Text>
-              </GlassCard>
+              </Card>
             </View>
 
             {/* Overall Progress Card */}
-            <GlassCard style={styles.card}>
+            <Card style={styles.card}>
               <View style={styles.cardHeader}>
                 <Text style={[styles.cardTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Overall Progress</Text>
                 <Text style={styles.progressPercentage}>{progressPercentage}%</Text>
               </View>
               <View style={[styles.progressBar, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>
-                <LinearGradient
-                  colors={["#667eea", "#8b5cf6"]}
-                  style={[styles.progressFill, { width: `${progressPercentage}%` }]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                />
+                <View style={[styles.progressFill, { width: `${progressPercentage}%`, backgroundColor: "#2563EB" }]} />
               </View>
               <Text style={[styles.progressText, { color: isDark ? "#64748b" : "#94a3b8" }]}>
                 {masteredCards} of {totalCards} cards mastered
               </Text>
-            </GlassCard>
+            </Card>
 
             {/* Total Reviews Card */}
-            <GlassCard style={styles.card}>
+            <Card style={styles.card}>
               <View style={styles.totalReviewsRow}>
                 <View style={[styles.statIcon, { backgroundColor: isDark ? "rgba(249, 115, 22, 0.2)" : "#ffedd5" }]}>
                   <Ionicons name="trophy" size={24} color="#f97316" />
@@ -133,7 +95,7 @@ export default function StatsScreen() {
                   {stats.totalCardsReviewed}
                 </Text>
               </View>
-            </GlassCard>
+            </Card>
 
             <View style={{ height: 32 }} />
           </View>

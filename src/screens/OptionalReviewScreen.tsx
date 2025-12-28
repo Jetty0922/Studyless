@@ -11,7 +11,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -113,10 +112,7 @@ export default function OptionalReviewScreen() {
 
   if (!currentCard) {
     return (
-      <LinearGradient
-        colors={isDark ? ["#0f172a", "#1e293b"] : ["#f8fafc", "#e2e8f0"]}
-        style={styles.container}
-      >
+      <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.emptyContainer}>
             <Ionicons name="checkmark-circle" size={64} color="#10b981" />
@@ -128,15 +124,12 @@ export default function OptionalReviewScreen() {
             </Pressable>
           </View>
         </SafeAreaView>
-      </LinearGradient>
+      </View>
     );
   }
 
   return (
-    <LinearGradient
-      colors={isDark ? ["#0f172a", "#1e293b"] : ["#f8fafc", "#e2e8f0"]}
-      style={styles.container}
-    >
+    <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
       <SafeAreaView style={styles.safeArea}>
         {/* Header */}
         <View style={styles.header}>
@@ -227,7 +220,7 @@ export default function OptionalReviewScreen() {
           </Text>
         </View>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 

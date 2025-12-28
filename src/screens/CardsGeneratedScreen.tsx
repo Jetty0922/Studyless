@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, TextInput, ScrollView, Platform, Alert, StyleSheet, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RouteProp } from "@react-navigation/native";
@@ -10,7 +9,7 @@ import { format } from "date-fns";
 import { OnboardingStackParamList } from "../navigation/RootNavigator";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { useTheme } from "../utils/useTheme";
-import { GlassCard } from "../components/ui";
+import { Card } from "../components/ui";
 
 // Same colors as DecksListScreen
 const DECK_COLORS = ["#667eea", "#8b5cf6", "#ec4899", "#f97316", "#10b981", "#ef4444"];
@@ -307,8 +306,7 @@ export default function CardsGeneratedScreen({ navigation, route }: CardsGenerat
               style={[styles.editInput, { backgroundColor: isDark ? "#0f172a" : "#f8fafc", borderColor: isDark ? "#334155" : "#e2e8f0", color: isDark ? "#f1f5f9" : "#1e293b" }]}
             />
             
-            <Pressable onPress={handleSaveEdit} style={styles.saveButton}>
-              <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+            <Pressable onPress={handleSaveEdit} style={[styles.saveButton, { backgroundColor: "#2563EB" }]}>
               <Text style={styles.saveButtonText}>Save Changes</Text>
             </Pressable>
           </View>
@@ -330,7 +328,7 @@ function PreviewCard({ front, back, isDark, onEdit, onDelete }: PreviewCardProps
   const [isFlipped, setIsFlipped] = useState(false);
 
   return (
-    <GlassCard style={styles.previewCard} padding={0}>
+    <Card style={styles.previewCard} padding={0}>
       <Pressable onPress={() => setIsFlipped(!isFlipped)} style={styles.previewCardContent}>
         <View style={styles.previewCardHeader}>
           <Text style={[styles.previewCardLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>
@@ -357,7 +355,7 @@ function PreviewCard({ front, back, isDark, onEdit, onDelete }: PreviewCardProps
           <Text style={[styles.cardActionText, { color: "#ef4444" }]}>Remove</Text>
         </Pressable>
       </View>
-    </GlassCard>
+    </Card>
   );
 }
 

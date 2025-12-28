@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,7 +25,7 @@ export default function ReviewScreen() {
   const reviewFlashcard = useFlashcardStore((s) => s.reviewFlashcard);
   const debugMode = useFlashcardStore((s) => s.debugMode);
 
-  const { isDark } = useTheme();
+  const { colors, isDark } = useTheme();
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
@@ -140,10 +139,9 @@ export default function ReviewScreen() {
 
   if (!isInitialized) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <SafeAreaView style={styles.centerContainer}>
-          <Text style={[styles.emptyText, { color: isDark ? "#64748b" : "#94a3b8" }]}>Loading...</Text>
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Loading...</Text>
         </SafeAreaView>
       </View>
     );
@@ -151,10 +149,9 @@ export default function ReviewScreen() {
 
   if (sessionCards.length === 0) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <SafeAreaView style={styles.centerContainer}>
-          <Text style={[styles.emptyText, { color: isDark ? "#64748b" : "#94a3b8" }]}>No cards to review</Text>
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No cards to review</Text>
         </SafeAreaView>
       </View>
     );
@@ -162,10 +159,9 @@ export default function ReviewScreen() {
 
   if (!currentCard) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <SafeAreaView style={styles.centerContainer}>
-          <Text style={[styles.emptyText, { color: isDark ? "#64748b" : "#94a3b8" }]}>Card not found</Text>
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Card not found</Text>
         </SafeAreaView>
       </View>
     );
@@ -174,20 +170,18 @@ export default function ReviewScreen() {
   const progress = ((currentIndex + 1) / sessionCards.length) * 100;
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
         {/* Header */}
         <View style={styles.header}>
           <Pressable onPress={handleClose} style={styles.closeButton}>
-            <Ionicons name="close" size={24} color={isDark ? "#f1f5f9" : "#1e293b"} />
+            <Ionicons name="close" size={24} color={colors.text} />
           </Pressable>
           <View style={styles.progressContainer}>
-            <View style={[styles.progressBar, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>
-              <LinearGradient colors={["#667eea", "#764ba2"]} style={[styles.progressFill, { width: `${progress}%` }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
+            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+              <View style={[styles.progressFill, { width: `${progress}%`, backgroundColor: colors.primary }]} />
             </View>
-            <Text style={[styles.progressText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{currentIndex + 1} of {sessionCards.length}</Text>
+            <Text style={[styles.progressText, { color: colors.text }]}>{currentIndex + 1} of {sessionCards.length}</Text>
           </View>
           <View style={styles.spacer} />
         </View>
@@ -195,24 +189,22 @@ export default function ReviewScreen() {
         {/* Card */}
         <View style={styles.cardContainer}>
           <Pressable onPress={handleFlip} style={styles.cardWrapper}>
-            <LinearGradient colors={isDark ? ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)"] : ["rgba(255,255,255,0.9)", "rgba(255,255,255,0.7)"]} style={styles.card} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Animated.View style={[styles.cardFace, frontAnimatedStyle, { backfaceVisibility: 'hidden' }]}>
-                <Text style={[styles.frontText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{currentCard.front}</Text>
-                {/* Only show image if imageUri exists AND there's no fileUri (fileUri indicates PDF source) */}
+                <Text style={[styles.frontText, { color: colors.text }]}>{currentCard.front}</Text>
                 {currentCard.imageUri && !currentCard.fileUri && <Image source={{ uri: currentCard.imageUri }} style={styles.cardImage} resizeMode="cover" />}
                 <View style={styles.tapHint}>
-                  <View style={[styles.tapHintPill, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)" }]}>
-                    <Ionicons name="swap-horizontal" size={14} color={isDark ? "#64748b" : "#94a3b8"} />
-                    <Text style={[styles.tapHintText, { color: isDark ? "#64748b" : "#94a3b8" }]}>Tap to reveal</Text>
+                  <View style={[styles.tapHintPill, { backgroundColor: colors.surface }]}>
+                    <Ionicons name="swap-horizontal" size={14} color={colors.textSecondary} />
+                    <Text style={[styles.tapHintText, { color: colors.textSecondary }]}>Tap to reveal</Text>
                   </View>
                 </View>
               </Animated.View>
 
-              <Animated.View style={[styles.cardFace, styles.cardBack, backAnimatedStyle, { backfaceVisibility: 'hidden' }]}>
-                <LinearGradient colors={isDark ? ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)"] : ["rgba(255,255,255,0.9)", "rgba(255,255,255,0.7)"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-                <Text style={[styles.backText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{currentCard.back}</Text>
+              <Animated.View style={[styles.cardFace, styles.cardBack, backAnimatedStyle, { backfaceVisibility: 'hidden', backgroundColor: colors.card }]}>
+                <Text style={[styles.backText, { color: colors.text }]}>{currentCard.back}</Text>
               </Animated.View>
-            </LinearGradient>
+            </View>
           </Pressable>
           
           {/* Debug Overlay */}
@@ -263,34 +255,26 @@ export default function ReviewScreen() {
         {/* Rating Buttons */}
         {showAnswer && (
           <View style={styles.ratingContainer}>
-            <Text style={[styles.ratingTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>How well did you know this?</Text>
+            <Text style={[styles.ratingTitle, { color: colors.text }]}>How well did you know this?</Text>
             <View style={styles.ratingButtonsRow}>
-              <Pressable onPress={() => handleRating("AGAIN")} style={({ pressed }) => [styles.ratingButton, pressed && styles.pressed]}>
-                <LinearGradient colors={["#ef4444", "#dc2626"]} style={styles.ratingButtonGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                  <Text style={styles.ratingButtonText}>Again</Text>
-                  <Text style={styles.ratingButtonSubtext}>{intervalPreviews.again}</Text>
-                </LinearGradient>
+              <Pressable onPress={() => handleRating("AGAIN")} style={({ pressed }) => [styles.ratingButton, { backgroundColor: colors.error, opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={styles.ratingButtonText}>Again</Text>
+                <Text style={styles.ratingButtonSubtext}>{intervalPreviews.again}</Text>
               </Pressable>
 
-              <Pressable onPress={() => handleRating("HARD")} style={({ pressed }) => [styles.ratingButton, pressed && styles.pressed]}>
-                <LinearGradient colors={["#f97316", "#ea580c"]} style={styles.ratingButtonGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                  <Text style={styles.ratingButtonText}>Hard</Text>
-                  <Text style={styles.ratingButtonSubtext}>{intervalPreviews.hard}</Text>
-                </LinearGradient>
+              <Pressable onPress={() => handleRating("HARD")} style={({ pressed }) => [styles.ratingButton, { backgroundColor: colors.warning, opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={styles.ratingButtonText}>Hard</Text>
+                <Text style={styles.ratingButtonSubtext}>{intervalPreviews.hard}</Text>
               </Pressable>
 
-              <Pressable onPress={() => handleRating("GOOD")} style={({ pressed }) => [styles.ratingButton, pressed && styles.pressed]}>
-                <LinearGradient colors={["#10b981", "#059669"]} style={styles.ratingButtonGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                  <Text style={styles.ratingButtonText}>Good</Text>
-                  <Text style={styles.ratingButtonSubtext}>{intervalPreviews.good}</Text>
-                </LinearGradient>
+              <Pressable onPress={() => handleRating("GOOD")} style={({ pressed }) => [styles.ratingButton, { backgroundColor: colors.success, opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={styles.ratingButtonText}>Good</Text>
+                <Text style={styles.ratingButtonSubtext}>{intervalPreviews.good}</Text>
               </Pressable>
 
-              <Pressable onPress={() => handleRating("EASY")} style={({ pressed }) => [styles.ratingButton, pressed && styles.pressed]}>
-                <LinearGradient colors={["#667eea", "#764ba2"]} style={styles.ratingButtonGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                  <Text style={styles.ratingButtonText}>Easy</Text>
-                  <Text style={styles.ratingButtonSubtext}>{intervalPreviews.easy}</Text>
-                </LinearGradient>
+              <Pressable onPress={() => handleRating("EASY")} style={({ pressed }) => [styles.ratingButton, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={styles.ratingButtonText}>Easy</Text>
+                <Text style={styles.ratingButtonSubtext}>{intervalPreviews.easy}</Text>
               </Pressable>
             </View>
           </View>
@@ -386,19 +370,11 @@ const styles = StyleSheet.create({
   },
   ratingButton: { 
     flex: 1,
-    borderRadius: 24, 
-    overflow: "hidden", 
-    shadowColor: "#000", 
-    shadowOffset: { width: 0, height: 2 }, 
-    shadowOpacity: 0.1, 
-    shadowRadius: 8, 
-    elevation: 3 
-  },
-  ratingButtonGradient: { 
-    paddingVertical: 14, 
-    paddingHorizontal: 8, 
+    borderRadius: 8, 
+    paddingVertical: 12, 
+    paddingHorizontal: 6, 
     alignItems: "center", 
-    justifyContent: "center" 
+    justifyContent: "center",
   },
   ratingButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "700", marginBottom: 2 },
   ratingButtonSubtext: { color: "rgba(255, 255, 255, 0.85)", fontSize: 11, fontWeight: "600" },

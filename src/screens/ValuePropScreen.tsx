@@ -1,109 +1,106 @@
 import React, { useEffect, useRef } from "react";
-import { View, Text, Pressable, Animated, StyleSheet } from "react-native";
+import { View, Text, Pressable, Animated, StyleSheet, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { OnboardingStackParamList } from "../navigation/RootNavigator";
-import { GradientButton } from "../components/ui";
+import { Button } from "../components/ui";
+import { useTheme } from "../utils/useTheme";
 
 type ValuePropScreenProps = {
   navigation: NativeStackNavigationProp<OnboardingStackParamList, "ValueProp">;
 };
 
 export default function ValuePropScreen({ navigation }: ValuePropScreenProps) {
+  const { colors, isDark } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
-  const badgeFade = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
-    // Staggered entrance animation
-    Animated.sequence([
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.timing(badgeFade, {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 500,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
         useNativeDriver: true,
       }),
     ]).start();
-  }, [badgeFade, fadeAnim, slideAnim]);
+  }, [fadeAnim, slideAnim]);
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={["#0f172a", "#1e1b4b", "#312e81"]}
-        style={StyleSheet.absoluteFillObject}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-
-
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
-          {/* Icon */}
+          {/* Logo */}
           <Animated.View
             style={[
-              styles.illustrationContainer,
+              styles.logoContainer,
               {
                 opacity: fadeAnim,
                 transform: [{ translateY: slideAnim }],
               },
             ]}
           >
-            <View style={styles.iconCircle}>
-              <Ionicons name="flash" size={60} color="#ffffff" style={styles.sparkleIcon} />
-            </View>
+            <Image 
+              source={require('../../assets/icon.png')} 
+              style={styles.logo} 
+              resizeMode="contain" 
+            />
           </Animated.View>
 
           {/* Main Headline */}
           <Animated.View
-            style={{
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            }}
+            style={[
+              styles.headlineContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
           >
-            <Text style={styles.headline}>
-              Study Less{"\n"}
-              <Text style={styles.headlineAccent}>Remember More</Text>
+            <Text style={[styles.headline, { color: colors.text }]}>
+              Study Less,{"\n"}Remember More
+            </Text>
+            <Text style={[styles.subheadline, { color: colors.textSecondary }]}>
+              AI-powered flashcards that adapt to your memory using proven science.
             </Text>
           </Animated.View>
 
-          {/* Value Proposition */}
+          {/* Features */}
           <Animated.View
-            style={{
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            }}
+            style={[
+              styles.featuresContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
           >
-            <Text style={styles.subheadline}>
-              AI-powered flashcards that adapt to{"\n"}
-              your memory. Study smarter, not harder.
-            </Text>
-          </Animated.View>
-
-          {/* Science Badge */}
-          <Animated.View style={[styles.socialProofBadge, { opacity: badgeFade }]}>
-            <View style={styles.badgeContent}>
-              <Ionicons name="flask" size={16} color="#667eea" />
-              <Text style={styles.badgeText}>Based on 100+ years of memory science</Text>
-            </View>
+            <FeatureItem
+              icon="camera-outline"
+              text="Scan notes, get flashcards instantly"
+              colors={colors}
+            />
+            <FeatureItem
+              icon="analytics-outline"
+              text="Smart scheduling based on your progress"
+              colors={colors}
+            />
+            <FeatureItem
+              icon="time-outline"
+              text="10 minutes a day for lasting memory"
+              colors={colors}
+            />
           </Animated.View>
 
           {/* Spacer */}
           <View style={styles.spacer} />
 
-          {/* CTA Button */}
+          {/* CTA Section */}
           <Animated.View
             style={[
               styles.ctaContainer,
@@ -113,24 +110,45 @@ export default function ValuePropScreen({ navigation }: ValuePropScreenProps) {
               },
             ]}
           >
-            <GradientButton
+            <Button
               title="Get Started"
               onPress={() => navigation.navigate("HowItWorks")}
               size="large"
-              style={styles.ctaButton}
             />
 
-            {/* Sign In Link */}
             <Pressable
               onPress={() => navigation.navigate("SignIn")}
               style={styles.signInContainer}
             >
-              <Text style={styles.signInText}>Already have an account? </Text>
-              <Text style={styles.signInLink}>Sign In</Text>
+              <Text style={[styles.signInText, { color: colors.textSecondary }]}>
+                Already have an account?{" "}
+              </Text>
+              <Text style={[styles.signInLink, { color: colors.primary }]}>
+                Sign In
+              </Text>
             </Pressable>
           </Animated.View>
         </View>
       </SafeAreaView>
+    </View>
+  );
+}
+
+function FeatureItem({ 
+  icon, 
+  text, 
+  colors 
+}: { 
+  icon: keyof typeof Ionicons.glyphMap; 
+  text: string; 
+  colors: any;
+}) {
+  return (
+    <View style={styles.featureItem}>
+      <View style={[styles.featureIcon, { backgroundColor: colors.primaryLight }]}>
+        <Ionicons name={icon} size={20} color={colors.primary} />
+      </View>
+      <Text style={[styles.featureText, { color: colors.text }]}>{text}</Text>
     </View>
   );
 }
@@ -145,93 +163,73 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    alignItems: "center",
-    justifyContent: "center",
+    paddingTop: 40,
   },
-  illustrationContainer: {
+  logoContainer: {
+    alignItems: "center",
     marginBottom: 32,
   },
-  iconCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "rgba(102, 126, 234, 0.3)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(167, 139, 250, 0.4)",
+  logo: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
   },
-  sparkleIcon: {
-    transform: [
-      { translateX: 0.5 },
-      { translateY: 1 },
-    ],
+  headlineContainer: {
+    alignItems: "center",
+    marginBottom: 40,
   },
   headline: {
-    fontSize: 42,
-    fontWeight: "800",
-    color: "#ffffff",
+    fontSize: 32,
+    fontWeight: "700",
     textAlign: "center",
-    lineHeight: 50,
-    letterSpacing: -1,
-  },
-  headlineAccent: {
-    color: "#a78bfa",
+    lineHeight: 40,
+    letterSpacing: -0.5,
   },
   subheadline: {
-    fontSize: 18,
-    color: "#94a3b8",
+    fontSize: 16,
     textAlign: "center",
-    lineHeight: 26,
-    marginTop: 16,
-  },
-  stat: {
-    color: "#4facfe",
-    fontWeight: "700",
-  },
-  socialProofBadge: {
-    marginTop: 24,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 20,
+    lineHeight: 24,
+    marginTop: 12,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
   },
-  badgeContent: {
+  featuresContainer: {
+    gap: 16,
+  },
+  featureItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 14,
   },
-  badgeText: {
-    color: "#e2e8f0",
-    fontSize: 14,
+  featureIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  featureText: {
+    fontSize: 15,
     fontWeight: "500",
+    flex: 1,
   },
   spacer: {
     flex: 1,
     minHeight: 40,
-    maxHeight: 80,
   },
   ctaContainer: {
-    width: "100%",
-    alignItems: "center",
-    paddingBottom: 20,
-  },
-  ctaButton: {
-    width: "100%",
+    paddingBottom: 24,
   },
   signInContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 20,
+    justifyContent: "center",
+    marginTop: 16,
+    paddingVertical: 8,
   },
   signInText: {
-    color: "#94a3b8",
     fontSize: 15,
   },
   signInLink: {
-    color: "#a78bfa",
     fontSize: 15,
     fontWeight: "600",
   },

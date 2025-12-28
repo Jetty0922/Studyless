@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, ScrollView, Alert, TextInput, Modal, Platform, StyleSheet } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,7 +9,7 @@ import { format } from "date-fns";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { useTheme } from "../utils/useTheme";
-import { GlassCard } from "../components/ui";
+import { Card } from "../components/ui";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type DeckSettingsRouteProp = RouteProp<RootStackParamList, "DeckSettings">;
@@ -43,8 +42,7 @@ export default function DeckSettingsScreen() {
 
   if (!deck) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} />
+      <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
         <View style={styles.emptyContainer}><Text style={{ color: isDark ? "#64748b" : "#94a3b8", fontSize: 18 }}>Deck not found</Text></View>
       </View>
     );
@@ -142,16 +140,12 @@ export default function DeckSettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-      <View style={[styles.floatingShape, styles.shape1, { backgroundColor: isDark ? "#667eea" : "#a5b4fc" }]} />
-      <View style={[styles.floatingShape, styles.shape2, { backgroundColor: isDark ? "#f093fb" : "#c4b5fd" }]} />
-
+    <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
       <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
             {/* Deck Details */}
-            <GlassCard style={styles.section}>
+            <Card style={styles.section}>
               <Text style={[styles.sectionTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Deck Details</Text>
 
               <Pressable onPress={() => { setEditedName(deck.name); setShowEditName(true); }} style={styles.settingRow}>
@@ -179,10 +173,10 @@ export default function DeckSettingsScreen() {
                 </View>
                 {!isLongTerm && <Ionicons name="chevron-forward" size={20} color={isDark ? "#64748b" : "#94a3b8"} />}
               </Pressable>
-            </GlassCard>
+            </Card>
 
             {/* Study Mode */}
-            <GlassCard style={styles.section}>
+            <Card style={styles.section}>
               <Text style={[styles.sectionTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Study Mode</Text>
               <View style={styles.modeRow}>
                 <Pressable onPress={() => isLongTerm && handleSwitchMode("TEST_PREP")} disabled={isTestPrep} style={[styles.modeButton, { backgroundColor: isTestPrep ? (isDark ? "rgba(102, 126, 234, 0.2)" : "#eef2ff") : (isDark ? "rgba(255,255,255,0.05)" : "#f8fafc"), borderColor: isTestPrep ? "#667eea" : (isDark ? "rgba(255,255,255,0.1)" : "#e2e8f0") }]}>
@@ -207,10 +201,10 @@ export default function DeckSettingsScreen() {
                   {isLongTerm ? "Long-term mode: Review cards every 2 weeks for retention" : "Test prep mode: Cards scheduled based on test date"}
                 </Text>
               </View>
-            </GlassCard>
+            </Card>
 
             {/* Danger Zone */}
-            <GlassCard style={styles.section}>
+            <Card style={styles.section}>
               <Text style={[styles.sectionTitle, { color: "#ef4444" }]}>Danger Zone</Text>
               <Pressable onPress={handleDeleteDeck} style={styles.settingRow}>
                 <View style={[styles.iconContainer, { backgroundColor: isDark ? "rgba(239, 68, 68, 0.2)" : "#fee2e2" }]}>
@@ -222,7 +216,7 @@ export default function DeckSettingsScreen() {
                 </View>
                 <Ionicons name="chevron-forward" size={20} color={isDark ? "#64748b" : "#94a3b8"} />
               </Pressable>
-            </GlassCard>
+            </Card>
 
             <View style={{ height: 32 }} />
           </View>

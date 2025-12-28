@@ -11,7 +11,7 @@ import {
   calculateTestPrepReview, 
   calculateLongTermReview, 
   generateSchedule,
-  convertCardToLongTerm,
+  convertToLongTerm,
 } from "../utils/spacedRepetition";
 import { Flashcard, ReviewRating } from "../types/flashcard";
 import { format, addDays, differenceInDays, startOfDay } from "date-fns";
@@ -191,7 +191,7 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
       try {
         // Use centralized conversion helper
         const now = addDays(new Date(), simulatedDays);
-        const updates = convertCardToLongTerm(mockCard as Flashcard, now);
+        const updates = convertToLongTerm([mockCard as Flashcard])[0];
 
         setMode("LONG_TERM");
         setMockCard(prev => ({

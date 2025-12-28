@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, Pressable, TextInput, Alert, ScrollView, Modal, ActivityIndicator, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../utils/useTheme";
-import { GlassCard } from "../components/ui";
+import { Card } from "../components/ui";
 
 export default function AccountSettingsScreen() {
   const { isDark } = useTheme();
@@ -87,22 +86,18 @@ export default function AccountSettingsScreen() {
   const passwordStrength = getPasswordStrength(newPassword);
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-      <View style={[styles.floatingShape, styles.shape1, { backgroundColor: isDark ? "#667eea" : "#a5b4fc" }]} />
-      <View style={[styles.floatingShape, styles.shape2, { backgroundColor: isDark ? "#f093fb" : "#c4b5fd" }]} />
-
+    <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
       <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
             {/* Current Email */}
-            <GlassCard style={styles.section}>
+            <Card style={styles.section}>
               <Text style={[styles.sectionLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>CURRENT EMAIL</Text>
               <Text style={[styles.emailText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{user?.email || "Loading..."}</Text>
-            </GlassCard>
+            </Card>
 
             {/* Change Email */}
-            <GlassCard style={styles.section}>
+            <Card style={styles.section}>
               <Text style={[styles.sectionLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>EMAIL</Text>
               <Pressable onPress={() => setShowEmailModal(true)} style={styles.settingRow}>
                 <View style={[styles.iconContainer, { backgroundColor: isDark ? "rgba(59, 130, 246, 0.2)" : "#dbeafe" }]}>
@@ -111,10 +106,10 @@ export default function AccountSettingsScreen() {
                 <Text style={[styles.settingTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Change Email</Text>
                 <Ionicons name="chevron-forward" size={20} color={isDark ? "#64748b" : "#94a3b8"} />
               </Pressable>
-            </GlassCard>
+            </Card>
 
             {/* Change Password */}
-            <GlassCard style={styles.section}>
+            <Card style={styles.section}>
               <Text style={[styles.sectionLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>PASSWORD</Text>
               <Pressable onPress={() => setShowPasswordModal(true)} style={styles.settingRow}>
                 <View style={[styles.iconContainer, { backgroundColor: isDark ? "rgba(102, 126, 234, 0.2)" : "#eef2ff" }]}>
@@ -123,10 +118,10 @@ export default function AccountSettingsScreen() {
                 <Text style={[styles.settingTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Change Password</Text>
                 <Ionicons name="chevron-forward" size={20} color={isDark ? "#64748b" : "#94a3b8"} />
               </Pressable>
-            </GlassCard>
+            </Card>
 
             {/* Security Info */}
-            <GlassCard style={styles.section}>
+            <Card style={styles.section}>
               <View style={styles.infoRow}>
                 <Ionicons name="shield-checkmark" size={24} color="#10b981" />
                 <View style={{ flex: 1, marginLeft: 12 }}>
@@ -134,7 +129,7 @@ export default function AccountSettingsScreen() {
                   <Text style={[styles.infoSubtitle, { color: isDark ? "#64748b" : "#94a3b8" }]}>Verify your password before making changes to your email or password.</Text>
                 </View>
               </View>
-            </GlassCard>
+            </Card>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -153,8 +148,7 @@ export default function AccountSettingsScreen() {
             <TextInput value={emailPassword} onChangeText={setEmailPassword} placeholder="Enter current password" placeholderTextColor={isDark ? "#64748b" : "#94a3b8"} secureTextEntry style={[styles.textInput, { backgroundColor: isDark ? "#0f172a" : "#f8fafc", borderColor: isDark ? "#334155" : "#e2e8f0", color: isDark ? "#f1f5f9" : "#1e293b" }]} />
             <View style={styles.buttonRow}>
               <Pressable onPress={resetEmailForm} disabled={isLoading} style={[styles.cancelButton, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}><Text style={{ color: isDark ? "#f1f5f9" : "#1e293b", fontWeight: "600" }}>Cancel</Text></Pressable>
-              <Pressable onPress={handleChangeEmail} disabled={isLoading} style={[styles.submitButton, { opacity: isLoading ? 0.7 : 1 }]}>
-                <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+              <Pressable onPress={handleChangeEmail} disabled={isLoading} style={[styles.submitButton, { opacity: isLoading ? 0.7 : 1, backgroundColor: "#2563EB" }]}>
                 {isLoading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.submitButtonText}>Update Email</Text>}
               </Pressable>
             </View>
@@ -186,8 +180,7 @@ export default function AccountSettingsScreen() {
             <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm new password" placeholderTextColor={isDark ? "#64748b" : "#94a3b8"} secureTextEntry style={[styles.textInput, { backgroundColor: isDark ? "#0f172a" : "#f8fafc", borderColor: isDark ? "#334155" : "#e2e8f0", color: isDark ? "#f1f5f9" : "#1e293b" }]} />
             <View style={styles.buttonRow}>
               <Pressable onPress={resetPasswordForm} disabled={isLoading} style={[styles.cancelButton, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}><Text style={{ color: isDark ? "#f1f5f9" : "#1e293b", fontWeight: "600" }}>Cancel</Text></Pressable>
-              <Pressable onPress={handleChangePassword} disabled={isLoading} style={[styles.submitButton, { opacity: isLoading ? 0.7 : 1 }]}>
-                <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+              <Pressable onPress={handleChangePassword} disabled={isLoading} style={[styles.submitButton, { opacity: isLoading ? 0.7 : 1, backgroundColor: "#2563EB" }]}>
                 {isLoading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.submitButtonText}>Update Password</Text>}
               </Pressable>
             </View>

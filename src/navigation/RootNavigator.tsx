@@ -16,20 +16,19 @@ import SettingsScreen from "../screens/SettingsScreen";
 import AccountSettingsScreen from "../screens/AccountSettingsScreen";
 import DecksListScreen from "../screens/DecksListScreen";
 import AdminDebugScreen from "../screens/AdminDebugScreen";
+import LearnScreen from "../screens/LearnScreen";
 import { isAdmin } from "../config/admin";
 
 // Import onboarding screens
 import ValuePropScreen from "../screens/ValuePropScreen";
 import HowItWorksScreen from "../screens/HowItWorksScreen";
-import CreateAccountScreen from "../screens/CreateAccountScreen";
-import SignInScreen from "../screens/SignInScreen";
-import QuickSetupScreen from "../screens/QuickSetupScreen";
-import NotificationsSetupScreen from "../screens/NotificationsSetupScreen";
+import AuthScreen from "../screens/AuthScreen";
 import FirstActionScreen from "../screens/FirstActionScreen";
 import CameraScreen from "../screens/CameraScreen";
 import ProcessingScreen from "../screens/ProcessingScreen";
 import CardsGeneratedScreen from "../screens/CardsGeneratedScreen";
 import LogicSimulatorScreen from "../screens/LogicSimulatorScreenV2";
+import FlashcardEditorScreen from "../screens/FlashcardEditorScreen";
 
 import { useFlashcardStore } from "../state/flashcardStore";
 import { useTheme } from "../utils/useTheme";
@@ -49,6 +48,7 @@ export type RootStackParamList = {
   Review: { cards: string[] };
   OptionalReview: { deckId: string };
   LogicSimulator: undefined;
+  FlashcardEditor: { deckId: string; cardId?: string };
 };
 
 export type OnboardingStackParamList = {
@@ -56,8 +56,6 @@ export type OnboardingStackParamList = {
   HowItWorks: undefined;
   CreateAccount: undefined;
   SignIn: undefined;
-  QuickSetup: undefined;
-  NotificationsSetup: undefined;
   FirstAction: undefined;
   CameraScreen: undefined;
   ProcessingScreen: { 
@@ -71,12 +69,13 @@ export type OnboardingStackParamList = {
     cards: { front: string; back: string }[];
     type: string;
   };
-  MainTabs: undefined; // Used as transition
+  MainTabs: undefined;
 };
 
 export type MainTabsParamList = {
   Home: undefined;
   Decks: undefined;
+  Learn: undefined;
   Progress: undefined;
   Settings: undefined;
 };
@@ -90,15 +89,12 @@ function OnboardingNavigator() {
     <OnboardingStack.Navigator screenOptions={{ headerShown: false }}>
       <OnboardingStack.Screen name="ValueProp" component={ValuePropScreen} />
       <OnboardingStack.Screen name="HowItWorks" component={HowItWorksScreen} />
-      <OnboardingStack.Screen name="CreateAccount" component={CreateAccountScreen} />
-      <OnboardingStack.Screen name="SignIn" component={SignInScreen} />
-      <OnboardingStack.Screen name="QuickSetup" component={QuickSetupScreen} />
-      <OnboardingStack.Screen name="NotificationsSetup" component={NotificationsSetupScreen} />
+      <OnboardingStack.Screen name="CreateAccount" component={AuthScreen} />
+      <OnboardingStack.Screen name="SignIn" component={AuthScreen} />
       <OnboardingStack.Screen name="FirstAction" component={FirstActionScreen} />
       <OnboardingStack.Screen name="CameraScreen" component={CameraScreen} />
       <OnboardingStack.Screen name="ProcessingScreen" component={ProcessingScreen} />
       <OnboardingStack.Screen name="CardsGenerated" component={CardsGeneratedScreen} />
-      {/* MainTabs removed from here to avoid nesting issues */}
     </OnboardingStack.Navigator>
   );
 }
@@ -116,6 +112,8 @@ function MainTabs() {
             iconName = focused ? "home" : "home-outline";
           } else if (route.name === "Decks") {
             iconName = focused ? "albums" : "albums-outline";
+          } else if (route.name === "Learn") {
+            iconName = focused ? "bulb" : "bulb-outline";
           } else if (route.name === "Progress") {
             iconName = focused ? "stats-chart" : "stats-chart-outline";
           } else if (route.name === "Settings") {
@@ -127,8 +125,9 @@ function MainTabs() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
         tabBarStyle: {
-          backgroundColor: colors.surface,
+          backgroundColor: colors.card,
           borderTopColor: colors.border,
+          borderTopWidth: 1,
         },
         headerShown: false,
       })}
@@ -142,6 +141,11 @@ function MainTabs() {
         name="Decks"
         component={DecksListScreen}
         options={{ title: "Decks" }}
+      />
+      <Tab.Screen
+        name="Learn"
+        component={LearnScreen}
+        options={{ title: "Learn" }}
       />
       <Tab.Screen
         name="Progress"
@@ -164,9 +168,9 @@ export default function RootNavigator() {
 
   if (isLoading) {
     return (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
-            <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
     );
   }
 
@@ -177,7 +181,7 @@ export default function RootNavigator() {
       screenOptions={{
         headerShown: false,
         headerStyle: {
-          backgroundColor: colors.surface,
+          backgroundColor: colors.card,
         },
         headerTintColor: colors.text,
         headerTitleStyle: {
@@ -262,6 +266,15 @@ export default function RootNavigator() {
             options={{
               title: "Logic Simulator",
               headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="FlashcardEditor"
+            component={FlashcardEditorScreen}
+            options={{
+              title: "Flashcard Editor",
+              headerShown: false,
+              presentation: "fullScreenModal",
             }}
           />
         </Stack.Group>

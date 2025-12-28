@@ -701,9 +701,27 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
                     createdAt: now,
                     mode: "LONG_TERM",
                     nextReviewDate: now,
-                    state: 0,
+                    
+                    // Learning phase fields
+                    learningState: 'LEARNING',
+                    learningStep: 0,
+                    learningSteps: LEARNING_STEPS,
+                    learningCardType: 'INTRADAY',
+                    
+                    // FSRS fields
+                    state: FSRSState.New,
                     stability: 0,
                     difficulty: 5,
+                    
+                    // Tracking
+                    reps: 0,
+                    lapses: 0,
+                    mastery: 'LEARNING',
+                    
+                    // Leech
+                    isLeech: false,
+                    leechSuspended: false,
+                    
                     againCount: 0,
                 };
             } else {
@@ -720,7 +738,27 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
                     schedule: schedule,
                     currentStep: 0,
                     nextReviewDate: today,
-                    mastery: "LEARNING",
+                    
+                    // Learning phase fields
+                    learningState: 'LEARNING',
+                    learningStep: 0,
+                    learningSteps: LEARNING_STEPS,
+                    learningCardType: 'INTRADAY',
+                    
+                    // FSRS fields
+                    state: FSRSState.New,
+                    stability: 0,
+                    difficulty: 5,
+                    
+                    // Tracking
+                    reps: 0,
+                    lapses: 0,
+                    mastery: 'LEARNING',
+                    
+                    // Leech
+                    isLeech: false,
+                    leechSuspended: false,
+                    
                     againCount: 0,
                 };
             }
@@ -924,19 +962,13 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         const state = get();
         const now = new Date();
 
-        const updatedFlashcards = state.flashcards.map((f) => {
+        const updatedFlashcards: Flashcard[] = state.flashcards.map((f) => {
             if (f.deckId !== deckId) return f;
 
             // Initialize FSRS params based on mastery
             const initialParams = getInitialFSRSParams(f.mastery);
             
-            // Critical Edge Case (The Gap)
-            // Set card.last_review = card.testDate
-            // This is tricky if testDate is null or in future. 
-            // Assuming testDate is in the past (test passed).
-            // If testDate is not set, fallback to createdAt or now.
             // Use NOW as the review date to avoid time-travel bugs
-            // (testDate could be in the past if test already happened)
             const lastReviewDate = now;
             
             // Calculate next due date from now using initial stability
@@ -953,7 +985,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
               ...initialParams, // state, stability, difficulty
               last_review: lastReviewDate,
               nextReviewDate: nextDue,
-            };
+            } as unknown as Flashcard;
         });
 
         set({

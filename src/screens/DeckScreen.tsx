@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from "react";
 import { View, Text, Pressable, ScrollView, Alert, TextInput, Modal, Keyboard, TouchableWithoutFeedback, StyleSheet } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,7 +8,7 @@ import { RootStackParamList } from "../navigation/RootNavigator";
 import { differenceInDays, format, isSameDay } from "date-fns";
 import { SortMenu } from "../components/SortMenu";
 import { useTheme } from "../utils/useTheme";
-import { GlassCard } from "../components/ui";
+import { Card } from "../components/ui";
 import { getDueCards } from "../utils/spacedRepetition";
 import { useSettingsStore } from "../state/settingsStore";
 
@@ -28,7 +27,7 @@ export default function DeckScreen() {
   const deleteFlashcard = useFlashcardStore((s) => s.deleteFlashcard);
   const convertToLongTerm = useFlashcardStore((s) => s.convertToLongTerm);
 
-  const { isDark } = useTheme();
+  const { colors, isDark } = useTheme();
 
   const deck = decks.find((d) => d.id === deckId);
   const deckCards = flashcards.filter((card) => card.deckId === deckId);
@@ -48,17 +47,17 @@ export default function DeckScreen() {
     if (deck) {
       navigation.setOptions({
         title: deck.name,
-        headerStyle: { backgroundColor: isDark ? "#0f172a" : "#f8fafc" },
-        headerTintColor: isDark ? "#f1f5f9" : "#1e293b",
+        headerStyle: { backgroundColor: colors.card },
+        headerTintColor: colors.text,
         headerRight: () => (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
             {!selectionMode && (
               <Pressable onPress={() => setSelectionMode(true)} style={{ marginRight: 4 }}>
-                <Ionicons name="checkbox-outline" size={24} color="#667eea" />
+                <Ionicons name="checkbox-outline" size={24} color={colors.primary} />
               </Pressable>
             )}
             <Pressable onPress={() => navigation.navigate("DeckSettings", { deckId })} style={{ marginRight: 8 }}>
-              <Ionicons name="ellipsis-vertical" size={24} color="#667eea" />
+              <Ionicons name="ellipsis-vertical" size={24} color={colors.primary} />
             </Pressable>
           </View>
         ),
@@ -89,7 +88,7 @@ export default function DeckScreen() {
     navigation.navigate("OptionalReview", { deckId });
   };
 
-  const handleCreateCard = () => {
+  const handleCreateCard = async () => {
     if (!front.trim() || !back.trim()) { Alert.alert("Error", "Please fill in both question and answer"); return; }
     if (deck?.mode === "TEST_PREP" && !deck.testDate) {
       Alert.alert("Test Date Required", "Please set a test date in deck settings before creating flashcards.", [
@@ -98,14 +97,22 @@ export default function DeckScreen() {
       ]);
       return;
     }
-    addFlashcard(deckId, front.trim(), back.trim());
-    setFront(""); setBack(""); setJustCreatedCard(true);
+    try {
+      await addFlashcard(deckId, front.trim(), back.trim());
+      setFront(""); setBack(""); setJustCreatedCard(true);
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to create flashcard");
+    }
   };
 
-  const handleEditCard = () => {
+  const handleEditCard = async () => {
     if (!selectedCard || !front.trim() || !back.trim()) { Alert.alert("Error", "Please fill in both question and answer"); return; }
-    updateFlashcard(selectedCard, front.trim(), back.trim());
-    setShowEditModal(false); setSelectedCard(null); setFront(""); setBack("");
+    try {
+      await updateFlashcard(selectedCard, front.trim(), back.trim());
+      setShowEditModal(false); setSelectedCard(null); setFront(""); setBack("");
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to update flashcard");
+    }
   };
 
   const handleDeleteCard = (cardId: string) => {
@@ -133,13 +140,12 @@ export default function DeckScreen() {
   const toggleCardSelection = (cardId: string) => { const newSelection = new Set(selectedCards); if (newSelection.has(cardId)) newSelection.delete(cardId); else newSelection.add(cardId); setSelectedCards(newSelection); };
   const selectAll = () => setSelectedCards(new Set(deckCards.map((c) => c.id)));
   const deselectAll = () => setSelectedCards(new Set());
-  const openEditModal = (card: typeof deckCards[0]) => { setSelectedCard(card.id); setFront(card.front); setBack(card.back); setShowEditModal(true); };
+  const openEditModal = (card: typeof deckCards[0]) => { navigation.navigate("FlashcardEditor", { deckId, cardId: card.id }); };
 
   if (!deck) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} />
-        <View style={styles.emptyContainer}><Text style={[styles.emptyText, { color: isDark ? "#64748b" : "#94a3b8" }]}>Deck not found</Text></View>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.emptyContainer}><Text style={[styles.emptyText, { color: colors.textSecondary }]}>Deck not found</Text></View>
       </View>
     );
   }
@@ -158,11 +164,7 @@ export default function DeckScreen() {
   });
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-      <View style={[styles.floatingShape, styles.shape1, { backgroundColor: isDark ? "#667eea" : "#a5b4fc" }]} />
-      <View style={[styles.floatingShape, styles.shape2, { backgroundColor: isDark ? "#f093fb" : "#c4b5fd" }]} />
-
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
         {/* Test Date Warning */}
         {deck.mode === "TEST_PREP" && !deck.testDate && (
@@ -216,40 +218,77 @@ export default function DeckScreen() {
           </View>
         )}
 
-        {/* Info Banner */}
-        {(deck.testDate || deckCards.length > 0) && (
-          <GlassCard style={styles.infoBanner} padding={16}>
-            <View style={styles.infoBannerRow}>
-              {deck.testDate && daysUntilTest !== null && (
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.infoLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>Test Date</Text>
-                  <Text style={[styles.infoValue, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{format(new Date(deck.testDate), "MMM d, yyyy")}</Text>
-                  <Text style={[styles.infoHighlight, { color: daysUntilTest <= 3 ? "#ef4444" : daysUntilTest <= 7 ? "#f97316" : "#667eea" }]}>
-                    {daysUntilTest === 0 ? "Today!" : daysUntilTest === 1 ? "Tomorrow" : `${daysUntilTest} days left`}
-                  </Text>
-                </View>
-              )}
-              {deckCards.length > 0 && (
-                <View style={{ alignItems: "flex-end", marginLeft: "auto" }}>
-                  <Text style={[styles.infoLabel, { color: isDark ? "#94a3b8" : "#64748b" }]}>Progress</Text>
-                  <Text style={[styles.infoValueLarge, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{masteredCount}/{deckCards.length}</Text>
-                  <Text style={[styles.infoHighlight, { color: "#10b981" }]}>{Math.round((masteredCount / deckCards.length) * 100)}% mastered</Text>
-                </View>
-              )}
+        {/* Progress & Stats Section */}
+        <View style={styles.statsSection}>
+          {/* Test Date - shown first if available */}
+          {deck.testDate && daysUntilTest !== null && daysUntilTest >= 0 && (
+            <View style={styles.testDateRow}>
+              <Ionicons name="calendar-outline" size={16} color={daysUntilTest <= 3 ? colors.error : colors.textSecondary} />
+              <Text style={[styles.testDateLabel, { color: daysUntilTest <= 3 ? colors.error : colors.textSecondary }]}>
+                {daysUntilTest === 0 ? "Test is today!" : daysUntilTest === 1 ? "Test tomorrow" : `${daysUntilTest} days until test`}
+              </Text>
             </View>
-          </GlassCard>
+          )}
+          
+          {/* Progress Bar */}
+          {deckCards.length > 0 && (
+            <View style={styles.progressContainer}>
+              <View style={styles.progressHeader}>
+                <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>
+                  {masteredCount} of {deckCards.length} mastered
+                </Text>
+                <Text style={[styles.progressPercent, { color: colors.primary }]}>
+                  {Math.round((masteredCount / deckCards.length) * 100)}%
+                </Text>
+              </View>
+              <View style={[styles.progressBarBg, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>
+                <View style={[styles.progressBarFill, { width: `${(masteredCount / deckCards.length) * 100}%`, backgroundColor: colors.success }]} />
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Primary Action Button */}
+        {!selectionMode && deckCards.length > 0 && !isTestFinished && (
+          <View style={styles.primaryActionSection}>
+            {isTestDay && settings.testDayLockoutEnabled ? (
+              <Pressable onPress={handleOptionalReview} style={[styles.primaryActionButton, { backgroundColor: colors.purple }]}>
+                <Ionicons name="infinite" size={24} color="white" />
+                <Text style={styles.primaryActionText}>Practice Mode</Text>
+              </Pressable>
+            ) : dueCardsCount > 0 ? (
+              <Pressable onPress={handleStartReview} style={[styles.primaryActionButton, { backgroundColor: colors.primary }]}>
+                <Ionicons name="play" size={24} color="white" />
+                <Text style={styles.primaryActionText}>Start Review ({dueCardsCount})</Text>
+              </Pressable>
+            ) : (
+              <View style={[styles.allCaughtUpBanner, { backgroundColor: colors.successLight }]}>
+                <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                <Text style={[styles.allCaughtUpText, { color: colors.success }]}>All caught up! No cards due.</Text>
+              </View>
+            )}
+          </View>
         )}
 
-        {/* Due Cards */}
-        {dueCardsCount > 0 && (
-          <GlassCard style={styles.dueBanner} padding={14}>
-            <Text style={{ color: "#667eea", fontWeight: "600", fontSize: 15 }}>{dueCardsCount} {dueCardsCount === 1 ? "card" : "cards"} ready to review</Text>
-          </GlassCard>
+        {/* Secondary Actions Row */}
+        {!selectionMode && (
+          <View style={styles.secondaryActionsRow}>
+            <Pressable onPress={() => navigation.navigate("FlashcardEditor", { deckId })} style={[styles.secondaryActionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Ionicons name="add" size={20} color={colors.text} />
+              <Text style={[styles.secondaryActionText, { color: colors.text }]}>Add Card</Text>
+            </Pressable>
+            {deckCards.length > 0 && !isTestDay && (
+              <Pressable onPress={handleOptionalReview} style={[styles.secondaryActionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Ionicons name="infinite" size={20} color={colors.purple} />
+                <Text style={[styles.secondaryActionText, { color: colors.purple }]}>Practice All</Text>
+              </Pressable>
+            )}
+          </View>
         )}
 
         {/* Selection Mode */}
         {selectionMode && (
-          <GlassCard style={styles.selectionBar} padding={12}>
+          <Card style={styles.selectionBar} padding={12}>
             <View style={styles.selectionBarRow}>
               <View style={{ flexDirection: "row", gap: 12 }}>
                 <Pressable onPress={selectAll}><Text style={{ color: "#667eea", fontWeight: "600" }}>Select All</Text></Pressable>
@@ -257,7 +296,7 @@ export default function DeckScreen() {
               </View>
               <Pressable onPress={() => { setSelectionMode(false); setSelectedCards(new Set()); }}><Text style={{ color: isDark ? "#64748b" : "#94a3b8", fontWeight: "600" }}>Cancel</Text></Pressable>
             </View>
-          </GlassCard>
+          </Card>
         )}
 
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -272,7 +311,7 @@ export default function DeckScreen() {
               <View style={{ gap: 12 }}>
                 {/* Sort Button */}
                 <Pressable onPress={() => setShowSortMenu(true)}>
-                  <GlassCard padding={12}>
+                  <Card padding={12}>
                     <View style={styles.sortButtonContent}>
                       <View style={{ flexDirection: "row", alignItems: "center" }}>
                         <Ionicons name="funnel-outline" size={16} color={isDark ? "#64748b" : "#94a3b8"} />
@@ -280,18 +319,18 @@ export default function DeckScreen() {
                       </View>
                       <Ionicons name="chevron-down" size={16} color={isDark ? "#64748b" : "#94a3b8"} />
                     </View>
-                  </GlassCard>
+                  </Card>
                 </Pressable>
 
                 {/* Mastery Summary */}
-                <GlassCard padding={14}>
+                <Card padding={14}>
                   <Text style={[styles.summaryTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Mastery Breakdown</Text>
                   <View style={styles.summaryRow}>
                     <View style={styles.summaryItem}><Text style={{ color: "#10b981", fontWeight: "600" }}>{Math.round((masteredCount / deckCards.length) * 100)}%</Text><Text style={[styles.summaryLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Mastered</Text></View>
                     <View style={styles.summaryItem}><Text style={{ color: "#667eea", fontWeight: "600" }}>{Math.round((learningCount / deckCards.length) * 100)}%</Text><Text style={[styles.summaryLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Learning</Text></View>
                     <View style={styles.summaryItem}><Text style={{ color: "#f97316", fontWeight: "600" }}>{Math.round((strugglingCount / deckCards.length) * 100)}%</Text><Text style={[styles.summaryLabel, { color: isDark ? "#64748b" : "#94a3b8" }]}>Struggling</Text></View>
                   </View>
-                </GlassCard>
+                </Card>
 
                 {/* Cards List */}
                 {sortedCards.map((card) => {
@@ -299,7 +338,7 @@ export default function DeckScreen() {
                   const masteryColor = card.mastery === "MASTERED" ? "#10b981" : card.mastery === "LEARNING" ? "#667eea" : "#f97316";
                   return (
                     <Pressable key={card.id} onPress={() => selectionMode ? toggleCardSelection(card.id) : openEditModal(card)}>
-                      <GlassCard style={isSelected ? { ...styles.cardItem, backgroundColor: isDark ? "rgba(102, 126, 234, 0.15)" : "rgba(102, 126, 234, 0.1)" } : styles.cardItem}>
+                      <Card style={isSelected ? { ...styles.cardItem, backgroundColor: isDark ? "rgba(102, 126, 234, 0.15)" : "rgba(102, 126, 234, 0.1)" } : styles.cardItem}>
                         <View style={[styles.cardBorder, { backgroundColor: masteryColor }]} />
                         <View style={styles.cardContent}>
                           {selectionMode && <Ionicons name={isSelected ? "checkbox" : "square-outline"} size={24} color={isSelected ? "#667eea" : (isDark ? "#64748b" : "#94a3b8")} style={{ marginRight: 12 }} />}
@@ -314,51 +353,25 @@ export default function DeckScreen() {
                             </View>
                           </View>
                         </View>
-                      </GlassCard>
+                      </Card>
                     </Pressable>
                   );
                 })}
               </View>
             )}
-            <View style={{ height: 32 }} />
+            <View style={{ height: 120 }} />
           </View>
         </ScrollView>
 
-        {/* Action Buttons */}
-        <View style={[styles.actionBar, { backgroundColor: isDark ? "rgba(15, 23, 42, 0.9)" : "rgba(248, 250, 252, 0.9)" }]}>
-          {selectionMode && selectedCards.size > 0 ? (
-            <Pressable onPress={handleBulkDelete} style={styles.deleteButton}>
-              <LinearGradient colors={["#ef4444", "#dc2626"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
-              <Ionicons name="trash" size={20} color="white" /><Text style={styles.actionButtonText}>Delete {selectedCards.size} Card{selectedCards.size !== 1 ? "s" : ""}</Text>
+        {/* Selection Mode Action Bar */}
+        {selectionMode && selectedCards.size > 0 && (
+          <View style={[styles.selectionActionBar, { backgroundColor: colors.error }]}>
+            <Pressable onPress={handleBulkDelete} style={styles.selectionDeleteBtn}>
+              <Ionicons name="trash" size={20} color="white" />
+              <Text style={styles.selectionDeleteText}>Delete {selectedCards.size} Card{selectedCards.size !== 1 ? "s" : ""}</Text>
             </Pressable>
-          ) : (
-            <>
-              {/* Test Day: Show Optional Review instead of normal review */}
-              {isTestDay && settings.testDayLockoutEnabled && deckCards.length > 0 && (
-                <Pressable onPress={handleOptionalReview} style={styles.primaryButton}>
-                  <LinearGradient colors={["#8b5cf6", "#a855f7"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
-                  <Ionicons name="infinite" size={20} color="white" /><Text style={styles.actionButtonText}>Practice (Optional)</Text>
-                </Pressable>
-              )}
-              {/* Normal: Show Start Review */}
-              {!isTestFinished && !isTestDay && deckCards.length > 0 && (
-                <Pressable onPress={handleStartReview} style={styles.primaryButton}>
-                  <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
-                  <Ionicons name="play" size={20} color="white" /><Text style={styles.actionButtonText}>Start Review{dueCardsCount > 0 && ` (${dueCardsCount})`}</Text>
-                </Pressable>
-              )}
-              {/* Optional Review button (always available when there are cards) */}
-              {deckCards.length > 0 && !isTestDay && (
-                <Pressable onPress={handleOptionalReview} style={[styles.secondaryButton, { backgroundColor: isDark ? "rgba(139,92,246,0.1)" : "rgba(139,92,246,0.08)", borderColor: isDark ? "rgba(139,92,246,0.3)" : "rgba(139,92,246,0.2)" }]}>
-                  <Ionicons name="infinite" size={20} color="#8b5cf6" /><Text style={[styles.secondaryButtonText, { color: "#8b5cf6" }]}>Practice All Cards</Text>
-                </Pressable>
-              )}
-              <Pressable onPress={() => setShowCreateModal(true)} style={[styles.secondaryButton, { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)", borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)" }]}>
-                <Ionicons name="add" size={20} color={isDark ? "#f1f5f9" : "#1e293b"} /><Text style={[styles.secondaryButtonText, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Create Flashcard</Text>
-              </Pressable>
-            </>
-          )}
-        </View>
+          </View>
+        )}
       </View>
 
       <SortMenu visible={showSortMenu} onClose={() => setShowSortMenu(false)} options={[{ value: "date", label: "Date Created" }, { value: "mastery", label: "Mastery Level" }, { value: "question", label: "Question (A-Z)" }]} selectedValue={sortBy} onSelect={(value) => setSortBy(value as "date" | "mastery" | "question")} />
@@ -379,8 +392,7 @@ export default function DeckScreen() {
                   <Text style={[styles.inputLabel, { color: isDark ? "#f1f5f9" : "#1e293b", marginTop: 16 }]}>Answer</Text>
                   <TextInput value={back} onChangeText={(t) => { setBack(t); setJustCreatedCard(false); }} placeholder="Enter answer" placeholderTextColor={isDark ? "#64748b" : "#94a3b8"} multiline numberOfLines={4} style={[styles.textInput, { backgroundColor: isDark ? "#0f172a" : "#f8fafc", borderColor: isDark ? "#334155" : "#e2e8f0", color: isDark ? "#f1f5f9" : "#1e293b" }]} />
                 </ScrollView>
-                <Pressable onPress={handleCreateCard} style={styles.modalButton}>
-                  <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+                <Pressable onPress={handleCreateCard} style={[styles.modalButton, { backgroundColor: colors.primary }]}>
                   <Text style={styles.modalButtonText}>Add Card</Text>
                 </Pressable>
                 {justCreatedCard && <Text style={[styles.successText, { color: "#10b981" }]}>Card added! Create another or close to finish.</Text>}
@@ -407,12 +419,10 @@ export default function DeckScreen() {
                   <TextInput value={back} onChangeText={setBack} placeholder="Enter answer" placeholderTextColor={isDark ? "#64748b" : "#94a3b8"} multiline numberOfLines={4} style={[styles.textInput, { backgroundColor: isDark ? "#0f172a" : "#f8fafc", borderColor: isDark ? "#334155" : "#e2e8f0", color: isDark ? "#f1f5f9" : "#1e293b" }]} />
                 </ScrollView>
                 <View style={{ gap: 12 }}>
-                  <Pressable onPress={handleEditCard} style={styles.modalButton}>
-                    <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+                  <Pressable onPress={handleEditCard} style={[styles.modalButton, { backgroundColor: colors.primary }]}>
                     <Text style={styles.modalButtonText}>Save Changes</Text>
                   </Pressable>
-                  <Pressable onPress={() => selectedCard && handleDeleteCard(selectedCard)} style={[styles.modalButton, { overflow: "hidden" }]}>
-                    <LinearGradient colors={["#ef4444", "#dc2626"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} pointerEvents="none" />
+                  <Pressable onPress={() => selectedCard && handleDeleteCard(selectedCard)} style={[styles.modalButton, { backgroundColor: colors.error }]}>
                     <Text style={styles.modalButtonText}>Delete Card</Text>
                   </Pressable>
                 </View>
@@ -483,4 +493,29 @@ const styles = StyleSheet.create({
   modalButton: { paddingVertical: 16, borderRadius: 14, alignItems: "center", marginTop: 16, overflow: "hidden" },
   modalButtonText: { color: "#ffffff", fontSize: 17, fontWeight: "600" },
   successText: { textAlign: "center", fontSize: 13, marginTop: 8 },
+  
+  // New redesigned styles
+  statsSection: { paddingHorizontal: 20, paddingTop: 16, gap: 12 },
+  progressContainer: { gap: 8 },
+  progressHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  progressLabel: { fontSize: 14 },
+  progressPercent: { fontSize: 14, fontWeight: "600" },
+  progressBarBg: { height: 8, borderRadius: 4, overflow: "hidden" },
+  progressBarFill: { height: "100%", borderRadius: 4 },
+  testDateRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  testDateLabel: { fontSize: 13, fontWeight: "500" },
+  
+  primaryActionSection: { paddingHorizontal: 20, paddingTop: 16 },
+  primaryActionButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, paddingVertical: 18, borderRadius: 14 },
+  primaryActionText: { color: "#ffffff", fontSize: 18, fontWeight: "600" },
+  allCaughtUpBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12 },
+  allCaughtUpText: { fontSize: 15, fontWeight: "500" },
+  
+  secondaryActionsRow: { flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 12 },
+  secondaryActionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1 },
+  secondaryActionText: { fontSize: 15, fontWeight: "500" },
+  
+  selectionActionBar: { paddingHorizontal: 20, paddingVertical: 16 },
+  selectionDeleteBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  selectionDeleteText: { color: "#ffffff", fontSize: 16, fontWeight: "600" },
 });

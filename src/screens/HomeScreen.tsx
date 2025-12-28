@@ -10,7 +10,6 @@ import {
   StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,7 +20,7 @@ import { RootStackParamList } from "../navigation/RootNavigator";
 import { format, differenceInDays } from "date-fns";
 import { PostTestDialog, LongTermDialog } from "../components/PostTestDialog";
 import { useTheme } from "../utils/useTheme";
-import { GlassCard } from "../components/ui";
+import { Card, Button } from "../components/ui";
 import {
   generateFlashcardsFromImage,
   generateFlashcardsFromFile,
@@ -30,10 +29,11 @@ import {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function HomeScreen() {
-  const { isDark } = useTheme();
+  const { colors, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const decks = useFlashcardStore((s) => s.decks);
   const flashcards = useFlashcardStore((s) => s.flashcards);
+  const stats = useFlashcardStore((s) => s.stats);
   const getDueCards = useFlashcardStore((s) => s.getDueCards);
   const getDecksNeedingPostTestDialog = useFlashcardStore((s) => s.getDecksNeedingPostTestDialog);
   const markPostTestDialogShown = useFlashcardStore((s) => s.markPostTestDialogShown);
@@ -77,26 +77,32 @@ export default function HomeScreen() {
   };
 
   const processAndGenerateFlashcards = async (uri: string, mimeType?: string) => {
+    setIsGenerating(true);
+    setGeneratingMessage("Analyzing content with AI...");
+    
+    // Add timeout wrapper
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("Request timed out. Please try again.")), 60000);
+    });
+    
     try {
-      setIsGenerating(true);
-      setGeneratingMessage("Analyzing content with AI...");
-      let flashcards;
+      let generatedCards;
       if (mimeType?.startsWith("image/") || uri.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)) {
         setGeneratingMessage("Reading image...");
-        flashcards = await generateFlashcardsFromImage(uri);
+        generatedCards = await Promise.race([generateFlashcardsFromImage(uri), timeoutPromise]);
       } else {
         setGeneratingMessage("Processing file...");
-        flashcards = await generateFlashcardsFromFile(uri, mimeType);
+        generatedCards = await Promise.race([generateFlashcardsFromFile(uri, mimeType), timeoutPromise]);
       }
-      setIsGenerating(false);
-      if (flashcards.length === 0) {
+      if (generatedCards.length === 0) {
         Alert.alert("No Content Found", "Could not generate flashcards from this file.");
         return;
       }
-      navigation.navigate("DeckSelection", { flashcards, sourceUri: uri });
+      navigation.navigate("DeckSelection", { flashcards: generatedCards, sourceUri: uri });
     } catch (error: any) {
+      Alert.alert("Generation Failed", error.message || "Could not generate flashcards. Please try again.");
+    } finally {
       setIsGenerating(false);
-      Alert.alert("Generation Failed", error.message || "Could not generate flashcards.");
     }
   };
 
@@ -145,121 +151,92 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={isDark ? ["#0f172a", "#1e1b4b"] : ["#f8fafc", "#eef2ff"]}
-        style={StyleSheet.absoluteFillObject}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-
-      {/* Floating shapes */}
-      <View style={[styles.floatingShape, styles.shape1, { backgroundColor: isDark ? "#667eea" : "#a5b4fc" }]} />
-      <View style={[styles.floatingShape, styles.shape2, { backgroundColor: isDark ? "#f093fb" : "#c4b5fd" }]} />
-      <View style={[styles.floatingShape, styles.shape3, { backgroundColor: isDark ? "#4facfe" : "#93c5fd" }]} />
-
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.headerTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Home</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Home</Text>
         </View>
 
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
-            {/* Start Studying Card */}
+            {/* Study Card */}
             {dueCards.length === 0 ? (
-              <GlassCard style={styles.heroCard}>
-                <LinearGradient
-                  colors={["#10b981", "#059669"]}
-                  style={StyleSheet.absoluteFillObject}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  pointerEvents="none"
-                />
-                <View style={styles.heroContent}>
-                  <View style={styles.heroIconContainer}>
-                    <Ionicons name="checkmark-circle" size={48} color="#ffffff" />
+              <Card variant="outlined" style={styles.studyCard}>
+                <View style={styles.studyCardEmpty}>
+                  <View style={[styles.checkIcon, { backgroundColor: colors.successLight }]}>
+                    <Ionicons name="checkmark-circle" size={32} color={colors.success} />
                   </View>
-                  <Text style={styles.heroTitle}>All Caught Up!</Text>
-                  <Text style={styles.heroSubtitle}>No cards due for review right now. Great job!</Text>
+                  <Text style={[styles.studyCardEmptyTitle, { color: colors.text }]}>All Caught Up!</Text>
+                  <Text style={[styles.studyCardEmptyText, { color: colors.textSecondary }]}>
+                    No cards due for review. Great work!
+                  </Text>
                 </View>
-              </GlassCard>
+              </Card>
             ) : (
-              <Pressable onPress={handleStartStudying}>
-                <GlassCard style={styles.heroCard}>
-                  <LinearGradient
-                    colors={["#667eea", "#764ba2"]}
-                    style={StyleSheet.absoluteFillObject}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    pointerEvents="none"
-                  />
-                  <View style={styles.studyCardContent}>
-                    <View style={styles.studyCardLeft}>
-                      <Text style={styles.studyCardLabel}>Cards Due Today</Text>
-                      <Text style={styles.studyCardCount}>{dueCards.length}</Text>
-                      <View style={styles.studyButton}>
-                        <Text style={styles.studyButtonText}>Start Studying</Text>
-                        <Ionicons name="arrow-forward" size={18} color="#667eea" />
-                      </View>
-                    </View>
-                    <View style={styles.studyCardIcon}>
-                      <Ionicons name="book" size={44} color="rgba(255,255,255,0.9)" />
-                    </View>
+              <Card variant="elevated" style={{ ...styles.studyCard, backgroundColor: colors.primary }}>
+                <View style={styles.studyCardContent}>
+                  <View style={styles.studyCardLeft}>
+                    <Text style={styles.studyCardLabel}>Cards Due</Text>
+                    <Text style={styles.studyCardCount}>{dueCards.length}</Text>
                   </View>
-                </GlassCard>
-              </Pressable>
+                  <Pressable 
+                    onPress={handleStartStudying}
+                    style={styles.studyButton}
+                  >
+                    <Text style={[styles.studyButtonText, { color: colors.primary }]}>Start Studying</Text>
+                    <Ionicons name="arrow-forward" size={18} color={colors.primary} />
+                  </Pressable>
+                </View>
+              </Card>
             )}
 
-            {/* Generate Flashcards */}
-            <Pressable onPress={() => setShowGenerateModal(true)}>
-              <GlassCard style={styles.actionCard}>
-                <View style={styles.actionCardContent}>
-                  <View style={[styles.actionIcon, { backgroundColor: isDark ? "rgba(16, 185, 129, 0.2)" : "rgba(16, 185, 129, 0.15)" }]}>
-                    <Ionicons name="sparkles" size={26} color="#10b981" />
-                  </View>
-                  <View style={styles.actionTextContainer}>
-                    <Text style={[styles.actionTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Generate Flashcards</Text>
-                    <Text style={[styles.actionSubtitle, { color: isDark ? "#94a3b8" : "#64748b" }]}>Upload photos or files with AI</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={22} color={isDark ? "#64748b" : "#94a3b8"} />
-                </View>
-              </GlassCard>
-            </Pressable>
+            {/* AI Generate Button */}
+            <Button
+              title="Generate with AI"
+              onPress={() => setShowGenerateModal(true)}
+              variant="secondary"
+              size="large"
+              icon={<Ionicons name="sparkles" size={20} color={colors.primary} />}
+              style={styles.addButton}
+            />
 
             {/* Upcoming Tests */}
             {upcomingTests.length > 0 && (
-              <GlassCard style={styles.testsCard}>
-                <Text style={[styles.sectionTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Upcoming Tests</Text>
-                <View style={styles.testsList}>
-                  {upcomingTests.map((test) => {
-                    const urgencyColor = test.daysLeft <= 3 ? "#ef4444" : test.daysLeft <= 7 ? "#f97316" : "#667eea";
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Upcoming Tests</Text>
+                <Card variant="outlined" padding={0}>
+                  {upcomingTests.map((test, index) => {
+                    const urgencyColor = test.daysLeft <= 3 ? colors.error : test.daysLeft <= 7 ? colors.warning : colors.primary;
+                    const isLast = index === upcomingTests.length - 1;
                     return (
                       <Pressable
                         key={test.id}
                         onPress={() => navigation.navigate("Deck", { deckId: test.id })}
-                        style={[styles.testItem, { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)" }]}
+                        style={[
+                          styles.testItem,
+                          !isLast && { borderBottomWidth: 1, borderBottomColor: colors.border },
+                        ]}
                       >
                         <View style={styles.testItemLeft}>
                           <View style={[styles.testDot, { backgroundColor: test.color }]} />
                           <View style={styles.testInfo}>
-                            <Text style={[styles.testName, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>{test.name}</Text>
-                            <Text style={[styles.testDate, { color: isDark ? "#64748b" : "#94a3b8" }]}>
-                              {format(new Date(test.testDate!), "MMM d, yyyy")}
+                            <Text style={[styles.testName, { color: colors.text }]}>{test.name}</Text>
+                            <Text style={[styles.testDate, { color: colors.textSecondary }]}>
+                              {format(new Date(test.testDate!), "MMM d, yyyy")} • {test.readyPercentage}% ready
                             </Text>
                           </View>
                         </View>
-                        <View style={styles.testItemRight}>
-                          <Text style={[styles.testDays, { color: urgencyColor }]}>
-                            {test.daysLeft === 0 ? "Today" : test.daysLeft === 1 ? "1d" : `${test.daysLeft}d`}
+                        <View style={[styles.testDays, { backgroundColor: isDark ? `${urgencyColor}20` : `${urgencyColor}15` }]}>
+                          <Text style={[styles.testDaysText, { color: urgencyColor }]}>
+                            {test.daysLeft === 0 ? "Today" : test.daysLeft === 1 ? "1 day" : `${test.daysLeft} days`}
                           </Text>
-                          <Text style={[styles.testReady, { color: isDark ? "#64748b" : "#94a3b8" }]}>{test.readyPercentage}% ready</Text>
                         </View>
                       </Pressable>
                     );
                   })}
-                </View>
-              </GlassCard>
+                </Card>
+              </View>
             )}
 
             <View style={{ height: 32 }} />
@@ -269,45 +246,65 @@ export default function HomeScreen() {
 
       {/* Generate Options Modal */}
       <Modal visible={showGenerateModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowGenerateModal(false)}>
-        <View style={[styles.modalContainer, { backgroundColor: isDark ? "#1e293b" : "#ffffff" }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: isDark ? "#334155" : "#e2e8f0" }]}>
-            <Text style={[styles.modalTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Generate Flashcards</Text>
-            <Pressable onPress={() => setShowGenerateModal(false)}>
-              <Ionicons name="close" size={28} color={isDark ? "#64748b" : "#94a3b8"} />
+        <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="sparkles" size={20} color={colors.primary} />
+              <Text style={[styles.modalTitle, { color: colors.text }]}>AI Flashcard Generator</Text>
+            </View>
+            <Pressable onPress={() => setShowGenerateModal(false)} hitSlop={8}>
+              <Ionicons name="close" size={24} color={colors.textSecondary} />
             </Pressable>
           </View>
           <View style={styles.modalContent}>
-            <Text style={[styles.modalSubtitle, { color: isDark ? "#94a3b8" : "#64748b" }]}>Choose how you want to create flashcards</Text>
+            <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+              Upload your notes and AI will create flashcards automatically
+            </Text>
             
-            <Pressable onPress={handleTakePhoto} style={[styles.modalOption, { backgroundColor: isDark ? "rgba(102, 126, 234, 0.15)" : "#eef2ff", borderColor: "#667eea" }]}>
-              <View style={[styles.modalOptionIcon, { backgroundColor: "#667eea" }]}>
-                <Ionicons name="camera" size={26} color="#ffffff" />
-              </View>
-              <View style={styles.modalOptionText}>
-                <Text style={[styles.modalOptionTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Take Photo</Text>
-                <Text style={[styles.modalOptionSubtitle, { color: isDark ? "#94a3b8" : "#64748b" }]}>Capture your notes with camera</Text>
-              </View>
-            </Pressable>
+            <Card variant="outlined" padding={0} style={styles.modalOption}>
+              <Pressable onPress={handleTakePhoto} style={styles.modalOptionContent}>
+                <View style={[styles.modalOptionIcon, { backgroundColor: colors.primaryLight }]}>
+                  <Ionicons name="camera-outline" size={24} color={colors.primary} />
+                </View>
+                <View style={styles.modalOptionText}>
+                  <Text style={[styles.modalOptionTitle, { color: colors.text }]}>Take Photo</Text>
+                  <Text style={[styles.modalOptionSubtitle, { color: colors.textSecondary }]}>
+                    Capture your notes with camera
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              </Pressable>
+            </Card>
 
-            <Pressable onPress={handlePickImage} style={[styles.modalOption, { backgroundColor: isDark ? "rgba(139, 92, 246, 0.15)" : "#f3e8ff", borderColor: "#8b5cf6" }]}>
-              <View style={[styles.modalOptionIcon, { backgroundColor: "#8b5cf6" }]}>
-                <Ionicons name="image" size={26} color="#ffffff" />
-              </View>
-              <View style={styles.modalOptionText}>
-                <Text style={[styles.modalOptionTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Upload Image</Text>
-                <Text style={[styles.modalOptionSubtitle, { color: isDark ? "#94a3b8" : "#64748b" }]}>Choose from your photo library</Text>
-              </View>
-            </Pressable>
+            <Card variant="outlined" padding={0} style={styles.modalOption}>
+              <Pressable onPress={handlePickImage} style={styles.modalOptionContent}>
+                <View style={[styles.modalOptionIcon, { backgroundColor: colors.primaryLight }]}>
+                  <Ionicons name="image-outline" size={24} color={colors.primary} />
+                </View>
+                <View style={styles.modalOptionText}>
+                  <Text style={[styles.modalOptionTitle, { color: colors.text }]}>Upload Image</Text>
+                  <Text style={[styles.modalOptionSubtitle, { color: colors.textSecondary }]}>
+                    Choose from your photo library
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              </Pressable>
+            </Card>
 
-            <Pressable onPress={handlePickFile} style={[styles.modalOption, { backgroundColor: isDark ? "rgba(249, 115, 22, 0.15)" : "#ffedd5", borderColor: "#f97316" }]}>
-              <View style={[styles.modalOptionIcon, { backgroundColor: "#f97316" }]}>
-                <Ionicons name="document" size={26} color="#ffffff" />
-              </View>
-              <View style={styles.modalOptionText}>
-                <Text style={[styles.modalOptionTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Upload File</Text>
-                <Text style={[styles.modalOptionSubtitle, { color: isDark ? "#94a3b8" : "#64748b" }]}>PDF, Word, or text documents</Text>
-              </View>
-            </Pressable>
+            <Card variant="outlined" padding={0} style={styles.modalOption}>
+              <Pressable onPress={handlePickFile} style={styles.modalOptionContent}>
+                <View style={[styles.modalOptionIcon, { backgroundColor: colors.primaryLight }]}>
+                  <Ionicons name="document-outline" size={24} color={colors.primary} />
+                </View>
+                <View style={styles.modalOptionText}>
+                  <Text style={[styles.modalOptionTitle, { color: colors.text }]}>Upload File</Text>
+                  <Text style={[styles.modalOptionSubtitle, { color: colors.textSecondary }]}>
+                    PDF, Word, or text documents
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              </Pressable>
+            </Card>
           </View>
         </View>
       </Modal>
@@ -315,12 +312,11 @@ export default function HomeScreen() {
       {/* Generating Modal */}
       <Modal visible={isGenerating} transparent animationType="fade">
         <View style={styles.loadingOverlay}>
-          <View style={[styles.loadingCard, { backgroundColor: isDark ? "#1e293b" : "#ffffff" }]}>
-            <ActivityIndicator size="large" color="#667eea" />
-            <Text style={[styles.loadingTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Generating Flashcards</Text>
-            <Text style={[styles.loadingSubtitle, { color: isDark ? "#94a3b8" : "#64748b" }]}>{generatingMessage}</Text>
-            <Text style={[styles.loadingNote, { color: isDark ? "#64748b" : "#94a3b8" }]}>This may take 10-30 seconds...</Text>
-          </View>
+          <Card variant="elevated" style={styles.loadingCard}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loadingTitle, { color: colors.text }]}>Generating Flashcards</Text>
+            <Text style={[styles.loadingSubtitle, { color: colors.textSecondary }]}>{generatingMessage}</Text>
+          </Card>
         </View>
       </Modal>
 
@@ -336,8 +332,8 @@ export default function HomeScreen() {
           <LongTermDialog
             visible={showLongTermDialog}
             deckName={decks.find((d) => d.id === currentPostTestDeck)?.name || ""}
-            onYes={() => { toggleLongTermMode(currentPostTestDeck, "LONG_TERM"); setShowLongTermDialog(false); setCurrentPostTestDeck(null); Alert.alert("Long-term Mode Enabled", "You will review these cards every 2 weeks."); }}
-            onNo={() => { setShowLongTermDialog(false); setCurrentPostTestDeck(null); Alert.alert("Deck Unchanged", "You can switch to long-term mode anytime."); }}
+            onYes={() => { toggleLongTermMode(currentPostTestDeck, "LONG_TERM"); setShowLongTermDialog(false); setCurrentPostTestDeck(null); Alert.alert("Long-term Mode Enabled", "You will review these cards periodically."); }}
+            onNo={() => { setShowLongTermDialog(false); setCurrentPostTestDeck(null); }}
           />
         </>
       )}
@@ -346,59 +342,230 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  safeArea: { flex: 1 },
-  header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 12 },
-  headerTitle: { fontSize: 34, fontWeight: "800", letterSpacing: -0.5 },
-  scrollView: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 8 },
-  heroCard: { marginBottom: 16, overflow: "hidden" },
-  heroContent: { alignItems: "center", paddingVertical: 24 },
-  heroIconContainer: { marginBottom: 12 },
-  heroTitle: { fontSize: 26, fontWeight: "800", color: "#ffffff", marginBottom: 8 },
-  heroSubtitle: { fontSize: 16, color: "rgba(255,255,255,0.9)", textAlign: "center" },
-  studyCardContent: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  studyCardLeft: { flex: 1 },
-  studyCardLabel: { fontSize: 15, color: "rgba(255,255,255,0.85)", fontWeight: "500", marginBottom: 4 },
-  studyCardCount: { fontSize: 56, fontWeight: "800", color: "#ffffff", marginBottom: 12 },
-  studyButton: { flexDirection: "row", alignItems: "center", backgroundColor: "#ffffff", paddingVertical: 12, paddingHorizontal: 18, borderRadius: 14, alignSelf: "flex-start", gap: 6 },
-  studyButtonText: { fontSize: 16, fontWeight: "700", color: "#667eea" },
-  studyCardIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
-  actionCard: { marginBottom: 16 },
-  actionCardContent: { flexDirection: "row", alignItems: "center" },
-  actionIcon: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginRight: 14 },
-  actionTextContainer: { flex: 1 },
-  actionTitle: { fontSize: 17, fontWeight: "700", marginBottom: 2 },
-  actionSubtitle: { fontSize: 14 },
-  testsCard: { marginBottom: 16 },
-  sectionTitle: { fontSize: 20, fontWeight: "700", marginBottom: 16 },
-  testsList: { gap: 10 },
-  testItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14, borderRadius: 16 },
-  testItemLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
-  testDot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
-  testInfo: { flex: 1 },
-  testName: { fontSize: 15, fontWeight: "600", marginBottom: 2 },
-  testDate: { fontSize: 12 },
-  testItemRight: { alignItems: "flex-end" },
-  testDays: { fontSize: 22, fontWeight: "800", marginBottom: 2 },
-  testReady: { fontSize: 11 },
-  floatingShape: { position: "absolute", borderRadius: 100, opacity: 0.12 },
-  shape1: { width: 180, height: 180, top: -60, right: -40 },
-  shape2: { width: 120, height: 120, bottom: 200, left: -40 },
-  shape3: { width: 80, height: 80, top: 300, right: -20 },
-  modalContainer: { flex: 1 },
-  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
-  modalTitle: { fontSize: 20, fontWeight: "700" },
-  modalContent: { padding: 20 },
-  modalSubtitle: { fontSize: 15, marginBottom: 20 },
-  modalOption: { flexDirection: "row", alignItems: "center", padding: 20, borderRadius: 20, borderWidth: 2, marginBottom: 12 },
-  modalOptionIcon: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", marginRight: 16 },
-  modalOptionText: { flex: 1 },
-  modalOptionTitle: { fontSize: 17, fontWeight: "700", marginBottom: 4 },
-  modalOptionSubtitle: { fontSize: 14 },
-  loadingOverlay: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.7)" },
-  loadingCard: { borderRadius: 24, padding: 32, marginHorizontal: 24, alignItems: "center", minWidth: 280 },
-  loadingTitle: { fontSize: 20, fontWeight: "700", marginTop: 20 },
-  loadingSubtitle: { fontSize: 15, marginTop: 8 },
-  loadingNote: { fontSize: 13, marginTop: 16 },
+  container: { 
+    flex: 1 
+  },
+  safeArea: { 
+    flex: 1 
+  },
+  header: { 
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20, 
+    paddingTop: 16, 
+    paddingBottom: 12 
+  },
+  headerTitle: { 
+    fontSize: 28, 
+    fontWeight: "700", 
+    letterSpacing: -0.5 
+  },
+  streakBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 4,
+  },
+  streakText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  scrollView: { 
+    flex: 1 
+  },
+  content: { 
+    paddingHorizontal: 20, 
+    paddingTop: 8 
+  },
+  studyCard: { 
+    marginBottom: 16 
+  },
+  studyCardEmpty: {
+    alignItems: "center",
+    paddingVertical: 24,
+  },
+  checkIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  studyCardEmptyTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  studyCardEmptyText: {
+    fontSize: 14,
+  },
+  studyCardContent: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    justifyContent: "space-between" 
+  },
+  studyCardLeft: {},
+  studyCardLabel: { 
+    fontSize: 14, 
+    color: "rgba(255,255,255,0.8)", 
+    fontWeight: "500", 
+    marginBottom: 2 
+  },
+  studyCardCount: { 
+    fontSize: 48, 
+    fontWeight: "700", 
+    color: "#ffffff" 
+  },
+  studyButton: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    backgroundColor: "#ffffff", 
+    paddingVertical: 10, 
+    paddingHorizontal: 16, 
+    borderRadius: 8, 
+    gap: 6 
+  },
+  studyButtonText: { 
+    fontSize: 15, 
+    fontWeight: "600" 
+  },
+  addButton: {
+    marginBottom: 24,
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: { 
+    fontSize: 17, 
+    fontWeight: "600", 
+    marginBottom: 12 
+  },
+  testItem: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    justifyContent: "space-between", 
+    padding: 14,
+  },
+  testItemLeft: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    flex: 1 
+  },
+  testDot: { 
+    width: 10, 
+    height: 10, 
+    borderRadius: 5, 
+    marginRight: 12 
+  },
+  testInfo: { 
+    flex: 1 
+  },
+  testName: { 
+    fontSize: 15, 
+    fontWeight: "600", 
+    marginBottom: 2 
+  },
+  testDate: { 
+    fontSize: 13 
+  },
+  testDays: { 
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  testDaysText: { 
+    fontSize: 12, 
+    fontWeight: "600" 
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 16,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+  },
+  modalContainer: { 
+    flex: 1 
+  },
+  modalHeader: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    justifyContent: "space-between", 
+    paddingHorizontal: 20, 
+    paddingVertical: 16, 
+    borderBottomWidth: 1 
+  },
+  modalTitle: { 
+    fontSize: 18, 
+    fontWeight: "600" 
+  },
+  modalContent: { 
+    padding: 20 
+  },
+  modalSubtitle: { 
+    fontSize: 14, 
+    marginBottom: 20 
+  },
+  modalOption: { 
+    marginBottom: 12 
+  },
+  modalOptionContent: {
+    flexDirection: "row", 
+    alignItems: "center", 
+    padding: 16,
+  },
+  modalOptionIcon: { 
+    width: 48, 
+    height: 48, 
+    borderRadius: 12, 
+    alignItems: "center", 
+    justifyContent: "center", 
+    marginRight: 14 
+  },
+  modalOptionText: { 
+    flex: 1 
+  },
+  modalOptionTitle: { 
+    fontSize: 16, 
+    fontWeight: "600", 
+    marginBottom: 2 
+  },
+  modalOptionSubtitle: { 
+    fontSize: 13 
+  },
+  loadingOverlay: { 
+    flex: 1, 
+    justifyContent: "center", 
+    alignItems: "center", 
+    backgroundColor: "rgba(0,0,0,0.5)" 
+  },
+  loadingCard: { 
+    padding: 32, 
+    alignItems: "center", 
+    minWidth: 260,
+    marginHorizontal: 40,
+  },
+  loadingTitle: { 
+    fontSize: 18, 
+    fontWeight: "600", 
+    marginTop: 16 
+  },
+  loadingSubtitle: { 
+    fontSize: 14, 
+    marginTop: 8 
+  },
 });

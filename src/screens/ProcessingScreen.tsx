@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { View, Text, StyleSheet, Animated, Easing } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RouteProp } from "@react-navigation/native";
@@ -64,20 +63,16 @@ export default function ProcessingScreen({ navigation, route }: ProcessingScreen
   }, [navigation, uri, type]);
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={isDark ? ["#0f172a", "#1e1b4b", "#312e81"] : ["#f8fafc", "#eef2ff", "#e0e7ff"]} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-      <View style={[styles.floatingShape, styles.shape1, { backgroundColor: isDark ? "#667eea" : "#a5b4fc" }]} />
-      <View style={[styles.floatingShape, styles.shape2, { backgroundColor: isDark ? "#f093fb" : "#c4b5fd" }]} />
-
+    <View style={[styles.container, { backgroundColor: isDark ? "#0f172a" : "#f8fafc" }]}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
           {/* Animated Icon */}
           <View style={styles.iconWrapper}>
             <Animated.View style={[styles.iconRing, { transform: [{ scale: pulseAnim }], borderColor: isDark ? "rgba(102, 126, 234, 0.3)" : "rgba(102, 126, 234, 0.2)" }]} />
             <Animated.View style={[styles.iconContainer, { transform: [{ rotate: spin }] }]}>
-              <LinearGradient colors={["#667eea", "#764ba2"]} style={styles.iconGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+              <View style={[styles.iconGradient, { backgroundColor: "#2563EB" }]}>
                 <Ionicons name="sparkles" size={40} color="#ffffff" />
-              </LinearGradient>
+              </View>
             </Animated.View>
           </View>
 

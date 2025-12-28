@@ -206,7 +206,7 @@ export function getCardDebugInfo(card: Flashcard): CardDebugInfo {
     cardId: card.id,
     front: card.front.substring(0, 50) + (card.front.length > 50 ? '...' : ''),
     
-    learningState: card.learningState || 'GRADUATED',
+    learningState: card.learningState || 'LEARNING',
     learningStep: card.learningStep || 0,
     learningCardType: card.learningCardType || 'N/A',
     
@@ -325,7 +325,7 @@ export function createIntervalLog(
       difficulty: card.difficulty || 5,
       elapsedDays,
       retrievability,
-      learningState: card.learningState || 'GRADUATED',
+      learningState: card.learningState || 'LEARNING',
       learningStep: card.learningStep || 0,
     },
     rating,
