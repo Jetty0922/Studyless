@@ -106,10 +106,10 @@ export default function DeckSettingsScreen() {
     if (newMode === "LONG_TERM") {
       Alert.alert(
         "Switch to Long-term Mode",
-        "WARNING: This is irreversible. All progress and steps will be reset. Review cards will be scheduled based on FSRS. Continue?",
+        "Cards will be rescheduled using FSRS algorithm based on current progress. Continue?",
         [
           { text: "Cancel", style: "cancel" },
-          { text: "Switch", style: "destructive", onPress: () => toggleLongTermMode(deckId, newMode) },
+          { text: "Switch", onPress: () => toggleLongTermMode(deckId, newMode) },
         ]
       );
     } else {
@@ -198,7 +198,7 @@ export default function DeckSettingsScreen() {
 
               <View style={[styles.modeInfo, { backgroundColor: isLongTerm ? (isDark ? "rgba(16, 185, 129, 0.15)" : "#d1fae5") : (isDark ? "rgba(102, 126, 234, 0.15)" : "#eef2ff") }]}>
                 <Text style={[styles.modeInfoText, { color: isLongTerm ? "#10b981" : "#667eea" }]}>
-                  {isLongTerm ? "Long-term mode: Review cards every 2 weeks for retention" : "Test prep mode: Cards scheduled based on test date"}
+                  {isLongTerm ? "Long-term mode: Cards scheduled based on memory strength" : "Test prep mode: Cards scheduled based on test date"}
                 </Text>
               </View>
             </Card>

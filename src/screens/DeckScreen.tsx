@@ -5,11 +5,11 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
-import { differenceInDays, format, isSameDay } from "date-fns";
+import { differenceInCalendarDays, format } from "date-fns";
 import { SortMenu } from "../components/SortMenu";
 import { useTheme } from "../utils/useTheme";
 import { Card } from "../components/ui";
-import { getDueCards } from "../utils/spacedRepetition";
+import { getDueCards, isTestDay as checkIsTestDay } from "../utils/spacedRepetition";
 import { useSettingsStore } from "../state/settingsStore";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -76,7 +76,7 @@ export default function DeckScreen() {
   }, [deckCards, deck, settings.testDayLockoutEnabled]);
   
   const dueCardsCount = dueCards.length;
-  const isTestDay = deck?.mode === 'TEST_PREP' && deck?.testDate && isSameDay(new Date(), new Date(deck.testDate));
+  const isTestDayFlag = deck?.mode === 'TEST_PREP' && deck?.testDate && checkIsTestDay(new Date(deck.testDate));
 
   const handleStartReview = () => {
     if (deckCards.length === 0) { Alert.alert("No Cards", "Please create some flashcards first."); return; }
@@ -154,7 +154,7 @@ export default function DeckScreen() {
   const masteredCount = deckCards.filter((c) => c.mastery === "MASTERED").length;
   const strugglingCount = deckCards.filter((c) => c.mastery === "STRUGGLING").length;
   const learningCount = deckCards.filter((c) => c.mastery === "LEARNING").length;
-  const daysUntilTest = deck.testDate ? differenceInDays(new Date(deck.testDate), new Date()) : null;
+  const daysUntilTest = deck.testDate ? differenceInCalendarDays(new Date(deck.testDate), new Date()) : null;
   const isTestFinished = deck.mode === "TEST_PREP" && daysUntilTest !== null && daysUntilTest < 0;
 
   const sortedCards = [...deckCards].sort((a, b) => {
@@ -182,7 +182,7 @@ export default function DeckScreen() {
         )}
 
         {/* Test Day Banner */}
-        {isTestDay && settings.testDayLockoutEnabled && (
+        {isTestDayFlag && settings.testDayLockoutEnabled && (
           <View style={[styles.warningBanner, { backgroundColor: "#8b5cf6" }]}>
             <View style={styles.warningContent}>
               <View style={{ flex: 1, marginRight: 16 }}>
@@ -206,13 +206,13 @@ export default function DeckScreen() {
             </View>
           </View>
         )}
-        {/* Final Review Day (1 day before test) */}
+        {/* Day Before Test reminder */}
         {deck.mode === "TEST_PREP" && deck.testDate && daysUntilTest === 1 && (
           <View style={[styles.warningBanner, { backgroundColor: "#f97316" }]}>
             <View style={styles.warningContent}>
               <View style={{ flex: 1, marginRight: 16 }}>
-                <Text style={styles.warningTitle}>Final Review Day</Text>
-                <Text style={styles.warningSubtitle}>Last chance for scheduled reviews before your test!</Text>
+                <Text style={styles.warningTitle}>Test Tomorrow!</Text>
+                <Text style={styles.warningSubtitle}>Review your due cards and get some rest. Good luck!</Text>
               </View>
             </View>
           </View>
@@ -251,7 +251,7 @@ export default function DeckScreen() {
         {/* Primary Action Button */}
         {!selectionMode && deckCards.length > 0 && !isTestFinished && (
           <View style={styles.primaryActionSection}>
-            {isTestDay && settings.testDayLockoutEnabled ? (
+            {isTestDayFlag && settings.testDayLockoutEnabled ? (
               <Pressable onPress={handleOptionalReview} style={[styles.primaryActionButton, { backgroundColor: colors.purple }]}>
                 <Ionicons name="infinite" size={24} color="white" />
                 <Text style={styles.primaryActionText}>Practice Mode</Text>
@@ -277,7 +277,7 @@ export default function DeckScreen() {
               <Ionicons name="add" size={20} color={colors.text} />
               <Text style={[styles.secondaryActionText, { color: colors.text }]}>Add Card</Text>
             </Pressable>
-            {deckCards.length > 0 && !isTestDay && (
+            {deckCards.length > 0 && !isTestDayFlag && (
               <Pressable onPress={handleOptionalReview} style={[styles.secondaryActionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Ionicons name="infinite" size={20} color={colors.purple} />
                 <Text style={[styles.secondaryActionText, { color: colors.purple }]}>Practice All</Text>

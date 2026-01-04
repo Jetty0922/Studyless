@@ -7,15 +7,23 @@ export interface GeneratedFlashcard {
   back: string;
 }
 
-const FLASHCARD_PROMPT = `Create flashcards from this content.
+const FLASHCARD_PROMPT = `Generate flashcards from this study material.
 
-Output: JSON array only: [{"front": "question", "back": "answer"}]
+**Output:** JSON array only: [{"front": "question", "back": "answer"}]
 
-Rules:
-- One concept per card
-- Front: Clear question or term
-- Back: Complete answer (2-3 sentences)
-- Focus on testable knowledge`;
+**Quantity:** Create cards for ALL important facts, concepts, and definitions. Aim for comprehensive coverage.
+
+**Front:** What/How/Why questions. Keep concise.
+**Back:** 1-3 sentences with the answer from the material.
+
+**Rules:**
+- ONE concept per card
+- Cover ALL key information: definitions, facts, processes, relationships, lists
+- For diagrams/visuals, create cards about what they represent
+- Use only information from the material (no external knowledge)
+
+**Example format:**
+{"front": "What are the three types of X mentioned?", "back": "1. First\\n2. Second\\n3. Third"}`;
 
 /**
  * Resizes large images for API limits

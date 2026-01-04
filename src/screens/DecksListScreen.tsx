@@ -6,7 +6,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
-import { format, differenceInDays } from "date-fns";
+import { format, differenceInCalendarDays } from "date-fns";
 import { useTheme } from "../utils/useTheme";
 import { SortMenu } from "../components/SortMenu";
 import { Card, Button } from "../components/ui";
@@ -49,7 +49,7 @@ export default function DecksListScreen() {
     const learningCount = deckCards.filter((c) => getCardMastery(c) === "LEARNING").length;
     const strugglingCount = deckCards.filter((c) => getCardMastery(c) === "STRUGGLING").length;
     const hasTest = deck.testDate && new Date(deck.testDate) > new Date();
-    const daysLeft = deck.testDate ? differenceInDays(new Date(deck.testDate), new Date()) : null;
+    const daysLeft = deck.testDate ? differenceInCalendarDays(new Date(deck.testDate), new Date()) : null;
 
     return { ...deck, cardCount: deckCards.length, masteredPct, masteredCount, learningCount, strugglingCount, daysLeft, hasTest, isLongTerm };
   });

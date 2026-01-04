@@ -9,8 +9,7 @@ import { RootStackParamList } from "../navigation/RootNavigator";
 import { useTheme } from "../utils/useTheme";
 import { 
   calculateTestPrepReview, 
-  calculateLongTermReview, 
-  generateSchedule,
+  calculateLongTermReview,
   convertToLongTerm,
 } from "../utils/spacedRepetition";
 import { Flashcard, ReviewRating } from "../types/flashcard";
@@ -58,8 +57,8 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
       nextReviewDate: now,
       front: "Mock Question",
       back: "Mock Answer",
-      currentStep: 0,
-      schedule: [0, 1, 3, 7, 14, 21, 28, 35, 45, 60],
+      learningState: 'LEARNING',
+      learningStep: 0,
     };
 
     if (effectiveMode === "TEST_PREP") {
@@ -68,7 +67,6 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
         testDate: testDate,
         mastery: "LEARNING",
         againCount: 0,
-        schedule: generateSchedule(testDate),
       };
     } else {
       newCard = {
@@ -76,7 +74,7 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
         state: 0,
         stability: 0,
         difficulty: 0,
-        last_review: undefined,
+        lastReview: undefined,
       };
     }
     setSimulatedDays(0);
@@ -94,7 +92,12 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
             if (data.mockCard.createdAt) data.mockCard.createdAt = revive(data.mockCard.createdAt);
             if (data.mockCard.nextReviewDate) data.mockCard.nextReviewDate = revive(data.mockCard.nextReviewDate);
             if (data.mockCard.testDate) data.mockCard.testDate = revive(data.mockCard.testDate);
-            if (data.mockCard.last_review) data.mockCard.last_review = revive(data.mockCard.last_review);
+            if (data.mockCard.lastReview) data.mockCard.lastReview = revive(data.mockCard.lastReview);
+            // Migrate old last_review to lastReview
+            if (data.mockCard.last_review && !data.mockCard.lastReview) {
+              data.mockCard.lastReview = revive(data.mockCard.last_review);
+              delete data.mockCard.last_review;
+            }
         }
         if (data.lastResult) {
              if (data.lastResult.nextReviewDate) data.lastResult.nextReviewDate = revive(data.lastResult.nextReviewDate);
@@ -145,14 +148,13 @@ export default function LogicSimulatorScreen({ navigation }: LogicSimulatorScree
     }
   }, [isLoaded, saveState, mode, testDate, simulatedDays, mockCard, lastResult, autoAdvance]);
 
-  // Re-calculate ladder/schedule when Test Date changes
+  // Update testDate on mock card when it changes
   useEffect(() => {
     if (!isLoaded) return;
     if (mode === "TEST_PREP") {
       setMockCard(prev => ({
         ...prev,
         testDate: testDate,
-        schedule: generateSchedule(testDate)
       }));
     }
   }, [isLoaded, mode, testDate]);

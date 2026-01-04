@@ -13,11 +13,8 @@ import {
 } from "../types/flashcard";
 import {
   reviewCard,
-  generateSchedule,
   getDueCards as getDueCardsUtil,
   getInitialFSRSParams,
-  isFinalReviewDay,
-  applyDateCap,
   getOptionalReviewCards,
   reviewFlashcardOptional,
   LEARNING_STEPS,
@@ -30,7 +27,7 @@ import {
   forceCardDue,
   simulateTimePassing,
 } from "../utils/debugTools";
-import { startOfDay, addDays, differenceInDays, subDays } from "date-fns";
+import { startOfDay as dateStartOfDay, addDays, differenceInDays, subDays } from "date-fns";
 
 interface FlashcardState {
   decks: Deck[];
@@ -64,7 +61,6 @@ interface FlashcardActions {
   convertToLongTerm: (deckId: string) => Promise<void>;
   toggleLongTermMode: (deckId: string, mode: "TEST_PREP" | "LONG_TERM") => Promise<void>;
   getDueCards: (deckId?: string) => Flashcard[];
-  getFinalReviewCards: (deckId: string) => Flashcard[];
   getDeckById: (id: string) => Deck | undefined;
   updateDailyStats: () => Promise<void>;
   getDecksNeedingPostTestDialog: () => Deck[];
@@ -367,7 +363,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
                 state: card.state,
                 stability: card.stability,
                 difficulty: card.difficulty,
-                last_review: card.last_review ? new Date(card.last_review).toISOString() : null,
+                last_review: card.lastReview ? (card.lastReview instanceof Date ? card.lastReview.toISOString() : new Date(card.lastReview).toISOString()) : null,
                 response_history: card.responseHistory,
                 again_count: card.againCount,
                 created_at: card.createdAt instanceof Date ? card.createdAt.toISOString() : card.createdAt,
@@ -419,43 +415,99 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         const deck = state.decks.find((d) => d.id === id);
         if (!deck) return;
 
-        // If test date changed, recalculate schedules for all cards in this deck (TEST_PREP only)
-        if (deck.mode === "TEST_PREP" && updates.testDate && updates.testDate !== deck.testDate) {
+        // Handle mode switch TO TEST_PREP (from LONG_TERM)
+        if (updates.mode === "TEST_PREP" && deck.mode !== "TEST_PREP" && updates.testDate) {
           const newTestDate = new Date(updates.testDate);
-
+          const now = new Date();
+          
+          // Reconfigure cards for TEST_PREP mode, preserving schedule
           const updatedFlashcards = state.flashcards.map((f) => {
             if (f.deckId !== id) return f;
-
-            // Recalculate schedule based on new date
-            const newSchedule = generateSchedule(newTestDate);
-            
-            // Reset or adjust step? Usually reset or try to map.
-            // Spec says: Initialization Function: generateSchedule(testDate)
-            // It implies new schedule is generated.
-            // Let's keep currentStep if possible, or cap it.
-            // But wait, if date changes, the "brick wall" changes.
-            // Safer to regenerate schedule and keep currentStep (clamped).
-            
-            const currentStep = f.currentStep || 0;
-            const safeStep = Math.min(currentStep, newSchedule.length - 1);
-            
-            // Re-calc next review date based on today + interval of current step?
-            // Or just let the next review fix it?
-            // Better to update nextReviewDate to fit new constraint.
-            const today = startOfDay(new Date());
-            const interval = newSchedule[safeStep];
-            const nextReview = applyDateCap(
-                addDays(today, interval), 
-                newTestDate
-            );
-
             return {
               ...f,
-              schedule: newSchedule,
-              currentStep: safeStep,
-              nextReviewDate: nextReview,
+              mode: "TEST_PREP" as const,
               testDate: newTestDate,
+              mastery: f.mastery || 'LEARNING' as const,
+              // PRESERVE learningState and nextReviewDate - don't reset!
             };
+          });
+
+          set({
+            decks: state.decks.map((d) =>
+              d.id === id ? { ...d, ...updates, mode: "TEST_PREP", testDate: newTestDate } : d
+            ),
+            flashcards: updatedFlashcards,
+          });
+
+          // DB Update
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase.from('decks').update({
+              mode: "TEST_PREP",
+              test_date: newTestDate.toISOString(),
+              updated_at: now.toISOString(),
+            }).eq('id', id);
+
+            // Update all cards for TEST_PREP mode (only mode-specific fields)
+            const deckCards = updatedFlashcards.filter(f => f.deckId === id);
+            for (const f of deckCards) {
+              await supabase.from('flashcards').update({
+                mode: "TEST_PREP",
+                test_date: newTestDate.toISOString(),
+                mastery: f.mastery || 'LEARNING',
+                // Don't reset learning_state, learning_step, learning_card_type, or next_review_date
+              }).eq('id', f.id);
+            }
+          }
+          return;
+        }
+
+        // If test date changed for TEST_PREP deck, cap nextReviewDate to brick wall if needed
+        if (deck.mode === "TEST_PREP" && updates.testDate && updates.testDate !== deck.testDate) {
+          const newTestDate = new Date(updates.testDate);
+          // Brick wall is the day before the test
+          const brickWall = subDays(dateStartOfDay(newTestDate), 1);
+          
+          // Check if brick wall is today or in the past
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const wallIsTodayOrPast = brickWall.getTime() <= today.getTime();
+          
+          const cardsToUpdate: Flashcard[] = [];
+          
+          const updatedFlashcards = state.flashcards.map((f) => {
+            if (f.deckId !== id) return f;
+            
+            // Skip learning cards - they have short intraday intervals
+            if (f.learningState === 'LEARNING' || f.learningState === 'RELEARNING') {
+              // Just update the testDate, preserve everything else
+              return { ...f, testDate: newTestDate };
+            }
+            
+            // If brick wall is today or past, don't cap - just update testDate
+            // (avoids making all cards immediately due when test is tomorrow)
+            if (wallIsTodayOrPast) {
+              return { ...f, testDate: newTestDate };
+            }
+            
+            // For graduated cards, only cap if nextReviewDate exceeds brick wall
+            const currentNextReview = f.nextReviewDate instanceof Date 
+              ? f.nextReviewDate 
+              : new Date(f.nextReviewDate);
+            
+            if (currentNextReview > brickWall) {
+              // Cap to brick wall
+              const updatedCard = {
+                ...f,
+                nextReviewDate: brickWall,
+                testDate: newTestDate,
+              };
+              cardsToUpdate.push(updatedCard);
+              return updatedCard;
+            }
+            
+            // Preserve existing nextReviewDate, just update testDate
+            return { ...f, testDate: newTestDate };
           });
 
           set({
@@ -474,16 +526,13 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
               updated_at: new Date().toISOString(),
             }).eq('id', id);
 
-            for (const f of updatedFlashcards) {
-              if (f.deckId === id) {
-                 await supabase.from('flashcards').update({
-                   next_review_date: f.nextReviewDate instanceof Date 
-                     ? f.nextReviewDate.toISOString() 
-                     : new Date(f.nextReviewDate).toISOString(),
-                   schedule: f.schedule,
-                   current_step: f.currentStep,
-                 }).eq('id', f.id);
-              }
+            // Only update cards whose nextReviewDate was capped
+            for (const f of cardsToUpdate) {
+              await supabase.from('flashcards').update({
+                next_review_date: f.nextReviewDate instanceof Date 
+                  ? f.nextReviewDate.toISOString() 
+                  : new Date(f.nextReviewDate).toISOString(),
+              }).eq('id', f.id);
             }
           }
 
@@ -522,7 +571,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         if (!deck) return;
 
         const now = new Date();
-        const today = startOfDay(now);
+        const today = dateStartOfDay(now);
         let newCard: Flashcard;
 
         // Upload files logic (unchanged)
@@ -583,8 +632,6 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
           // TEST_PREP: Start in learning phase
           if (!deck.testDate) throw new Error("Test date is required");
           
-          const schedule = generateSchedule(deck.testDate);
-          
           newCard = {
             id: generateId(),
             deckId,
@@ -603,10 +650,6 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             learningStep: 0,
             learningSteps: LEARNING_STEPS,
             learningCardType: 'INTRADAY',
-            
-            // TEST_PREP specific
-            schedule,
-            currentStep: 0,
             
             // FSRS fields (will be set at graduation)
             state: FSRSState.New,
@@ -647,14 +690,18 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             mode: newCard.mode,
             test_date: newCard.testDate ? newCard.testDate.toISOString() : null,
             next_review_date: newCard.nextReviewDate.toISOString(),
-            schedule: newCard.schedule,
-            current_step: newCard.currentStep,
             mastery: newCard.mastery,
             state: newCard.state,
             stability: newCard.stability,
             difficulty: newCard.difficulty,
-            last_review: newCard.last_review ? newCard.last_review.toISOString() : null,
+            last_review: newCard.lastReview ? (newCard.lastReview instanceof Date ? newCard.lastReview.toISOString() : new Date(newCard.lastReview).toISOString()) : null,
             again_count: newCard.againCount,
+            // Learning phase fields
+            learning_state: newCard.learningState,
+            learning_step: newCard.learningStep,
+            learning_card_type: newCard.learningCardType,
+            reps: newCard.reps,
+            lapses: newCard.lapses,
           });
           
           if (error) {
@@ -669,16 +716,11 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         if (!deck) return;
 
         const now = new Date();
-        const today = startOfDay(now);
+        const today = dateStartOfDay(now);
         const { data: { user } } = await supabase.auth.getUser();
 
         const newCards: Flashcard[] = [];
         const dbCards: any[] = [];
-
-        // Pre-calculate common params
-        const schedule = deck.mode === "TEST_PREP" && deck.testDate 
-            ? generateSchedule(deck.testDate) 
-            : undefined;
 
         for (const card of cards) {
             const id = generateId();
@@ -735,9 +777,7 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
                     createdAt: now,
                     mode: "TEST_PREP",
                     testDate: deck.testDate,
-                    schedule: schedule,
-                    currentStep: 0,
-                    nextReviewDate: today,
+                    nextReviewDate: now, // Due immediately for learning
                     
                     // Learning phase fields
                     learningState: 'LEARNING',
@@ -777,14 +817,18 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
                     mode: newCard.mode,
                     test_date: newCard.testDate ? newCard.testDate.toISOString() : null,
                     next_review_date: newCard.nextReviewDate.toISOString(),
-                    schedule: newCard.schedule,
-                    current_step: newCard.currentStep,
                     mastery: newCard.mastery,
                     state: newCard.state,
                     stability: newCard.stability,
                     difficulty: newCard.difficulty,
-                    last_review: newCard.last_review ? newCard.last_review.toISOString() : null,
+                    last_review: newCard.lastReview ? (newCard.lastReview instanceof Date ? newCard.lastReview.toISOString() : new Date(newCard.lastReview).toISOString()) : null,
                     again_count: newCard.againCount,
+                    // Learning phase fields
+                    learning_state: newCard.learningState,
+                    learning_step: newCard.learningStep,
+                    learning_card_type: newCard.learningCardType,
+                    reps: newCard.reps,
+                    lapses: newCard.lapses,
                 });
             }
         }
@@ -974,17 +1018,27 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
             // Calculate next due date from now using initial stability
             const nextDue = addDays(now, initialParams.stability);
 
+            // Preserve learning state - don't force all cards to GRADUATED
+            const preservedLearningState = f.learningState || 'LEARNING';
+            const isGraduated = preservedLearningState === 'GRADUATED';
+            
             return {
               ...f,
               mode: "LONG_TERM" as const,
               testDate: undefined,
               schedule: undefined,
               currentStep: undefined,
-              mastery: undefined,
+              // Preserve mastery for potential reconversion back to TEST_PREP
               
-              ...initialParams, // state, stability, difficulty
-              last_review: lastReviewDate,
-              nextReviewDate: nextDue,
+              // Preserve learning state - cards in learning stay in learning
+              learningState: preservedLearningState,
+              learningStep: isGraduated ? 0 : (f.learningStep || 0),
+              learningCardType: isGraduated ? 'INTERDAY' as const : (f.learningCardType || 'INTRADAY' as const),
+              
+              // Only apply FSRS params to graduated cards
+              ...(isGraduated ? initialParams : {}),
+              lastReview: isGraduated ? lastReviewDate : f.lastReview,
+              nextReviewDate: isGraduated ? nextDue : (f.nextReviewDate || now),
             } as unknown as Flashcard;
         });
 
@@ -1024,12 +1078,15 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
                    test_date: null,
                    schedule: null,
                    current_step: null,
-                   mastery: null,
+                   // Preserve learning state - don't force all cards to GRADUATED
+                   learning_state: f.learningState,
+                   learning_step: f.learningStep,
+                   learning_card_type: f.learningCardType,
                    state: f.state,
                    stability: f.stability,
                    difficulty: f.difficulty,
-                   last_review: f.last_review 
-                     ? (f.last_review instanceof Date ? f.last_review.toISOString() : new Date(f.last_review).toISOString())
+                   last_review: f.lastReview 
+                     ? (f.lastReview instanceof Date ? f.lastReview.toISOString() : new Date(f.lastReview).toISOString())
                      : null,
                    next_review_date: f.nextReviewDate instanceof Date 
                      ? f.nextReviewDate.toISOString() 
@@ -1059,31 +1116,17 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
         return getDueCardsUtil(relevantCards, relevantDecks, true);
       },
 
-      getFinalReviewCards: (deckId) => {
-        const state = get();
-        const deck = state.decks.find((d) => d.id === deckId);
-        if (!deck?.testDate) return [];
-        
-        // Re-use logic from getDueCards? 
-        // getDueCards handles final review logic already.
-        // But if we specifically want ONLY final review cards:
-        if (isFinalReviewDay(deck.testDate)) {
-             return state.flashcards.filter(c => c.deckId === deckId);
-        }
-        return [];
-      },
-
       getDeckById: (id) => {
         return get().decks.find((d) => d.id === id);
       },
 
       updateDailyStats: async () => {
         const state = get();
-        const today = startOfDay(new Date());
+        const today = dateStartOfDay(new Date());
         
         let newStats = { ...state.stats };
         const lastStudy = state.stats.lastStudyDate
-          ? startOfDay(new Date(state.stats.lastStudyDate))
+          ? dateStartOfDay(new Date(state.stats.lastStudyDate))
           : null;
 
         if (lastStudy) {
@@ -1132,13 +1175,13 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
 
       getDecksNeedingPostTestDialog: () => {
         const state = get();
-        const today = startOfDay(new Date());
+        const today = dateStartOfDay(new Date());
 
         return state.decks.filter((deck) => {
           if (!deck.testDate) return false;
           if (deck.postTestDialogShown) return false; // Already shown
           
-          const testDate = startOfDay(new Date(deck.testDate));
+          const testDate = dateStartOfDay(new Date(deck.testDate));
 
           // Show dialog if test date has passed (or is today)
           return (testDate <= today) &&
@@ -1325,7 +1368,10 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
               createdAt: card.createdAt ? new Date(card.createdAt) : new Date(),
               nextReviewDate: card.nextReviewDate ? new Date(card.nextReviewDate) : new Date(),
               testDate: card.testDate ? new Date(card.testDate) : undefined,
-              last_review: card.last_review ? new Date(card.last_review) : undefined,
+              // Migrate last_review to lastReview
+              lastReview: card.lastReview 
+                ? new Date(card.lastReview) 
+                : (card.last_review ? new Date(card.last_review) : undefined),
             }));
           }
           

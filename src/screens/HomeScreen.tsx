@@ -17,8 +17,8 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
-import { format, differenceInDays } from "date-fns";
-import { PostTestDialog, LongTermDialog } from "../components/PostTestDialog";
+import { format, differenceInCalendarDays } from "date-fns";
+import { LongTermDialog } from "../components/PostTestDialog";
 import { useTheme } from "../utils/useTheme";
 import { Card, Button } from "../components/ui";
 import {
@@ -43,7 +43,6 @@ export default function HomeScreen() {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingMessage, setGeneratingMessage] = useState("Processing...");
-  const [showPostTestDialog, setShowPostTestDialog] = useState(false);
   const [showLongTermDialog, setShowLongTermDialog] = useState(false);
   const [currentPostTestDeck, setCurrentPostTestDeck] = useState<string | null>(null);
 
@@ -51,7 +50,8 @@ export default function HomeScreen() {
     const decksNeedingDialog = getDecksNeedingPostTestDialog();
     if (decksNeedingDialog.length > 0) {
       setCurrentPostTestDeck(decksNeedingDialog[0].id);
-      setShowPostTestDialog(true);
+      // Show LongTermDialog directly (removed useless rating step)
+      setShowLongTermDialog(true);
     }
   }, [getDecksNeedingPostTestDialog]);
 
@@ -63,7 +63,7 @@ export default function HomeScreen() {
       const deckCards = flashcards.filter((card) => card.deckId === deck.id);
       const masteredCount = deckCards.filter((c) => c.mastery === "MASTERED").length;
       const readyPercentage = deckCards.length > 0 ? Math.round((masteredCount / deckCards.length) * 100) : 0;
-      const daysLeft = differenceInDays(new Date(deck.testDate!), new Date());
+      const daysLeft = differenceInCalendarDays(new Date(deck.testDate!), new Date());
       return { ...deck, readyPercentage, daysLeft, cardCount: deckCards.length };
     })
     .sort((a, b) => a.daysLeft - b.daysLeft)
@@ -330,22 +330,14 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* Post-Test Dialogs */}
+      {/* Post-Test Dialog */}
       {currentPostTestDeck && (
-        <>
-          <PostTestDialog
-            visible={showPostTestDialog}
-            deckName={decks.find((d) => d.id === currentPostTestDeck)?.name || ""}
-            onTestResponse={() => { setShowPostTestDialog(false); setShowLongTermDialog(true); }}
-            onClose={() => { setShowPostTestDialog(false); markPostTestDialogShown(currentPostTestDeck); setCurrentPostTestDeck(null); }}
-          />
-          <LongTermDialog
-            visible={showLongTermDialog}
-            deckName={decks.find((d) => d.id === currentPostTestDeck)?.name || ""}
-            onYes={() => { toggleLongTermMode(currentPostTestDeck, "LONG_TERM"); setShowLongTermDialog(false); setCurrentPostTestDeck(null); Alert.alert("Long-term Mode Enabled", "You will review these cards periodically."); }}
-            onNo={() => { setShowLongTermDialog(false); setCurrentPostTestDeck(null); }}
-          />
-        </>
+        <LongTermDialog
+          visible={showLongTermDialog}
+          deckName={decks.find((d) => d.id === currentPostTestDeck)?.name || ""}
+          onYes={() => { toggleLongTermMode(currentPostTestDeck, "LONG_TERM"); setShowLongTermDialog(false); markPostTestDialogShown(currentPostTestDeck); setCurrentPostTestDeck(null); Alert.alert("Long-term Mode Enabled", "Cards will be scheduled based on memory strength."); }}
+          onNo={() => { setShowLongTermDialog(false); markPostTestDialogShown(currentPostTestDeck); setCurrentPostTestDeck(null); }}
+        />
       )}
     </View>
   );

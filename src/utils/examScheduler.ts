@@ -43,7 +43,10 @@ export interface ExamPhaseConfig {
  */
 export function getExamPhase(testDate: Date): ExamPhaseConfig {
   const now = new Date();
-  const daysLeft = differenceInDays(testDate, now);
+  // Normalize to midnight to compare calendar days, not 24h periods
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const testMidnight = new Date(testDate.getFullYear(), testDate.getMonth(), testDate.getDate());
+  const daysLeft = differenceInDays(testMidnight, todayMidnight);
   
   if (daysLeft < 0) {
     return {

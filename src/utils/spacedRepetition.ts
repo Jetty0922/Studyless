@@ -4,7 +4,7 @@
  * This module implements the complete scheduling logic for StudyLess:
  * - Learning Steps (Anki-style)
  * - Day Boundary handling (4 AM cutoff)
- * - TEST_PREP mode (ladder-based)
+ * - TEST_PREP mode (phase-based R_exam scheduling)
  * - LONG_TERM mode (FSRS-based)
  * - Fuzz functions
  * - Leech detection
@@ -73,8 +73,6 @@ export const EASY_INTERVAL = 4;
  */
 export const LEARN_AHEAD_LIMIT = 1200;  // 20 minutes in seconds
 
-/** @deprecated Use LEARN_AHEAD_LIMIT instead */
-export const EARLY_REVIEW_BUFFER_SECONDS = LEARN_AHEAD_LIMIT;
 
 /**
  * Day boundary hour (4 AM)
@@ -142,20 +140,9 @@ export const DEFAULT_INSERTION_ORDER: InsertionOrder = 'SEQUENTIAL';
 // TEST_PREP CONSTANTS
 // ============================================================================
 
-/**
- * Standard ladder for TEST_PREP mode (intervals in DAYS)
- * 
- * @deprecated This ladder-based approach is replaced by phase-based R_exam scheduling.
- * Kept for backward compatibility with legacy code and optional reviews.
- * New scheduling uses calculateOptimalReviewTime() based on stability and target retention.
- */
-export const STANDARD_LADDER = [0, 1, 3, 7, 14, 21, 28, 35, 45, 60];
-
-/**
- * Mastery threshold for TEST_PREP
- * Cards at step >= 8 are considered MASTERED
- */
-export const MASTERY_STEP_THRESHOLD = 8;
+// Note: The ladder-based scheduling (STANDARD_LADDER, currentStep, schedule) 
+// has been replaced by phase-based R_exam scheduling.
+// New scheduling uses getExamPhase() and calculateOptimalReviewTime() instead.
 
 // ============================================================================
 // FUZZ CONSTANTS
@@ -200,13 +187,6 @@ export const MIN_INTERVALS = {
   easy: 0         // No minimum
 };
 
-/** @deprecated Use MIN_INTERVALS instead (values now in seconds) */
-export const LONG_TERM_MIN_INTERVALS = {
-  again: 60000,     // 1 minute in ms
-  hard: 300000,     // 5 minutes in ms
-  good: 600000,     // 10 minutes in ms
-  easy: 0           // No minimum
-};
 
 /**
  * Default FSRS parameters (19 weights for FSRS-5)
@@ -641,24 +621,6 @@ export function createFSRS(parameters: number[] = DEFAULT_FSRS_PARAMETERS): FSRS
 // Default FSRS instance
 const fsrs = createFSRS();
 
-/**
- * Find closest ladder step for a given stability
- */
-export function findClosestLadderStep(stability: number, ladder: number[] = STANDARD_LADDER): number {
-  let closestStep = 0;
-  let minDiff = Math.abs(ladder[0] - stability);
-  
-  for (let i = 1; i < ladder.length; i++) {
-    const diff = Math.abs(ladder[i] - stability);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closestStep = i;
-    }
-  }
-  
-  return closestStep;
-}
-
 // ============================================================================
 // PART 5: LEARNING PHASE LOGIC
 // ============================================================================
@@ -802,7 +764,9 @@ export function graduateCard(
       );
     }
     
-    const nextReview = addDays(startOfDay(now), Math.round(nextInterval));
+    let nextReview = addDays(startOfDay(now), Math.round(nextInterval));
+    // Apply date cap to prevent scheduling past brick wall
+    nextReview = applyDateCap(nextReview, testDate);
     
     return {
       learningState: 'GRADUATED',
@@ -845,30 +809,24 @@ export function graduateCard(
 
 /**
  * Helper: Apply date cap (brick wall)
+ * The wall is the day before the test - cards should not be scheduled for test day or after.
+ * Returns the calculated date if it's before the wall, otherwise returns the wall.
+ * Never returns a date before today.
  */
 export const applyDateCap = (calculatedDate: Date, testDate: Date): Date => {
-  const wall = subDays(dateStartOfDay(testDate), 1);
-  return isAfter(calculatedDate, wall) ? wall : calculatedDate;
-};
-
-/**
- * Generate schedule based on test date
- * 
- * @deprecated This ladder-based approach is replaced by phase-based R_exam scheduling.
- * Kept for backward compatibility with optional reviews and mode conversion.
- * New scheduling uses getExamPhase() and calculateOptimalReviewTime() instead.
- */
-export const generateSchedule = (testDate: Date): number[] => {
   const today = dateStartOfDay(new Date());
-  const daysLeft = differenceInDays(dateStartOfDay(testDate), today);
-
-  if (daysLeft <= 1) {
-    return [0];
+  const wall = subDays(dateStartOfDay(testDate), 1);
+  
+  // If the wall is today or in the past, return tomorrow at 4 AM (INTERDAY)
+  // This prevents cards from becoming immediately due on final review day
+  if (wall.getTime() <= today.getTime()) {
+    const tomorrow = addDays(today, 1);
+    tomorrow.setHours(DAY_BOUNDARY_HOUR, 0, 0, 0);
+    return tomorrow;
   }
-
-  // Include intervals up to AND INCLUDING the exam day (<=, not <)
-  // This allows scheduling a card for day 7 when test is 7 days away
-  return STANDARD_LADDER.filter((interval) => interval <= daysLeft);
+  
+  // Cap to wall if calculated date exceeds it
+  return isAfter(calculatedDate, wall) ? wall : calculatedDate;
 };
 
 /**
@@ -990,10 +948,6 @@ export function calculateTestPrepReview(
     testDate
   );
   
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'spacedRepetition.ts:calculateTestPrepReview:PHASE',message:'Phase-based review',data:{cardId:card.id?.slice(0,8),phase,daysLeft,targetRetention,rating,oldStability:stability,newStability,baseInterval,fuzzedInterval,rAtExam},timestamp:Date.now(),sessionId:'debug-session',runId:'phase-based',hypothesisId:'R_EXAM'})}).catch(()=>{});
-  // #endregion
-  
   return {
     nextReviewDate: nextReview,
     stability: newStability,
@@ -1038,7 +992,7 @@ export function calculateLongTermReview(
   }
   
   // Build FSRS card from current state
-  const lastReviewDate = card.lastReview || card.last_review;
+  const lastReviewDate = card.lastReview;
   const elapsedDays = lastReviewDate ? daysBetween(new Date(lastReviewDate), now) : 0;
   
   const fsrsCard: FSRSCard = {
@@ -1065,13 +1019,13 @@ export function calculateLongTermReview(
   
   // Get stability and apply minimum intervals
   let stabilityDays = result.stability;
-  const stabilityMs = stabilityDays * 24 * 60 * 60 * 1000;
-  const minInterval = LONG_TERM_MIN_INTERVALS[
+  const minIntervalSeconds = MIN_INTERVALS[
     rating === "HARD" ? 'hard' : rating === "GOOD" ? 'good' : 'easy'
   ];
+  const minIntervalDays = minIntervalSeconds / 86400; // Convert seconds to days
   
-  if (minInterval > 0 && stabilityMs < minInterval) {
-    stabilityDays = minInterval / (24 * 60 * 60 * 1000);
+  if (minIntervalDays > 0 && stabilityDays < minIntervalDays) {
+    stabilityDays = minIntervalDays;
   }
   
   // Apply fuzz
@@ -1133,20 +1087,26 @@ export const handleReview = reviewCard;
 // ============================================================================
 
 /**
- * Helper to check if a deck is in Final Review Mode
+ * Helper to check if a deck is in Final Review Mode (day before test)
  */
 export const isFinalReviewDay = (testDate: Date): boolean => {
-  const today = startOfDay(new Date());
-  const dayBefore = subDays(dateStartOfDay(testDate), 1);
-  return isSameDay(today, dayBefore);
+  // Use midnight normalization for consistent calendar day comparison
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const testMidnight = new Date(testDate.getFullYear(), testDate.getMonth(), testDate.getDate());
+  const dayBefore = subDays(testMidnight, 1);
+  return isSameDay(todayMidnight, dayBefore);
 };
 
 /**
  * Helper to check if today is test day
  */
 export const isTestDay = (testDate: Date): boolean => {
-  const today = startOfDay(new Date());
-  return isSameDay(today, dateStartOfDay(testDate));
+  // Use midnight normalization for consistent calendar day comparison
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const testMidnight = new Date(testDate.getFullYear(), testDate.getMonth(), testDate.getDate());
+  return isSameDay(todayMidnight, testMidnight);
 };
 
 /**
@@ -1222,14 +1182,6 @@ export function getDueCards(
     if (deck.mode === 'TEST_PREP' && deck.testDate && testDayLockoutEnabled) {
       if (isTestDay(new Date(deck.testDate))) {
         continue;  // Skip all cards from this deck on test day
-      }
-    }
-    
-    // Final Review Day - all cards are due
-    if (deck.mode === 'TEST_PREP' && deck.testDate) {
-      if (isFinalReviewDay(new Date(deck.testDate))) {
-        reviewCards.push(card);
-        continue;
       }
     }
     
@@ -1363,9 +1315,8 @@ export function getDueCards(
     : Infinity;
   const limitedReviews = reviewCards.slice(0, reviewBudget);
   
-  // New cards limit
-  const newCardsLimit = options.newCardsLimit ?? NEW_CARDS_PER_DAY;
-  const limitedNew = newCards.slice(0, newCardsLimit);
+  // New cards - no limit, let users study all if they want
+  const limitedNew = newCards;
   
   // ============================================
   // COMBINE IN STRICT PRIORITY ORDER
@@ -1418,8 +1369,7 @@ export function convertToLongTerm(cards: Flashcard[]): Partial<Flashcard>[] {
  */
 export function convertToTestPrep(
   cards: Flashcard[],
-  testDate: Date,
-  _ladder: number[] = STANDARD_LADDER // Kept for backward compatibility, unused
+  testDate: Date
 ): Partial<Flashcard>[] {
   const now = new Date();
   const phaseConfig = getExamPhase(testDate);
@@ -1636,16 +1586,28 @@ function getLearningIntervalPreviews(card: Flashcard): IntervalPreview {
   const hardSeconds = calculateHardIntervalLearning(currentStep, steps);
   const hardInterval = formatSeconds(hardSeconds);
   
-  // GOOD: Next step or graduate with GRADUATING_INTERVAL
+  // Calculate daysLeft for TEST_PREP cards
+  let daysLeft = 999; // Default: no cap
+  if (card.mode === 'TEST_PREP' && card.testDate) {
+    const testDate = card.testDate instanceof Date ? card.testDate : new Date(card.testDate);
+    const now = new Date();
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const testMidnight = new Date(testDate.getFullYear(), testDate.getMonth(), testDate.getDate());
+    daysLeft = Math.max(1, differenceInDays(testMidnight, todayMidnight));
+  }
+  
+  // GOOD: Next step or graduate with GRADUATING_INTERVAL (capped to daysLeft)
   let goodInterval: string;
   if (currentStep < steps.length - 1) {
     goodInterval = formatSeconds(steps[currentStep + 1]);
   } else {
-    goodInterval = formatInterval(GRADUATING_INTERVAL);  // Show graduation interval
+    const cappedGood = Math.min(GRADUATING_INTERVAL, daysLeft);
+    goodInterval = formatInterval(cappedGood);
   }
   
-  // EASY: Graduate with EASY_INTERVAL
-  const easyInterval = formatInterval(EASY_INTERVAL);
+  // EASY: Graduate with EASY_INTERVAL (capped to daysLeft)
+  const cappedEasy = Math.min(EASY_INTERVAL, daysLeft);
+  const easyInterval = formatInterval(cappedEasy);
   
   return {
     again: againInterval,
@@ -1721,16 +1683,12 @@ function getTestPrepIntervalPreviews(card: Flashcard): IntervalPreview {
   const goodInterval = formatInterval(Math.max(1, Math.round(goodDays)));
   const easyInterval = formatInterval(Math.max(1, Math.round(easyDays)));
 
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'spacedRepetition.ts:getTestPrepIntervalPreviews:PHASE',message:'Phase-based previews',data:{cardId:card.id?.slice(0,8),phase,daysLeft,targetRetention,stability,hardDays,goodDays,easyDays,hardInterval,goodInterval,easyInterval},timestamp:Date.now(),sessionId:'debug-session',runId:'phase-based',hypothesisId:'R_EXAM'})}).catch(()=>{});
-  // #endregion
-
   return { again: againInterval, hard: hardInterval, good: goodInterval, easy: easyInterval };
 }
 
 function getLongTermIntervalPreviews(card: Flashcard): IntervalPreview {
   const now = new Date();
-  const lastReviewDate = card.lastReview || card.last_review;
+  const lastReviewDate = card.lastReview;
   
   const fsrsCard: FSRSCard = {
     due: new Date(card.nextReviewDate),
@@ -1751,10 +1709,6 @@ function getLongTermIntervalPreviews(card: Flashcard): IntervalPreview {
   const hardDays = (schedulingCards[FSRSRating.Hard].card.due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
   const goodDays = (schedulingCards[FSRSRating.Good].card.due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
   const easyDays = (schedulingCards[FSRSRating.Easy].card.due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/e9a42f0d-8709-4111-a8f4-d1e1f419946b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'spacedRepetition.ts:getLongTermIntervalPreviews',message:'LONG_TERM mode preview',data:{cardId:card.id?.slice(0,8),stability:card.stability,difficulty:card.difficulty,state:card.state,againDays,hardDays,goodDays,easyDays},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'LONG_TERM'})}).catch(()=>{});
-  // #endregion
 
   return {
     again: againDays < 0.01 ? "10m" : formatInterval(againDays),
@@ -1786,7 +1740,10 @@ export const getInitialFSRSParams = (
       return { state: FSRSState.Review, stability: 14, difficulty: 5 };
     case "LEARNING":
       return { state: FSRSState.Learning, stability: 2, difficulty: 6 };
+    case "STRUGGLING":
+      return { state: FSRSState.Learning, stability: 1, difficulty: 7 };
     default:
-      return { state: FSRSState.New, stability: 0, difficulty: 8 };
+      // Default to LEARNING-like params (stability: 1) to prevent instant due
+      return { state: FSRSState.Learning, stability: 1, difficulty: 6 };
   }
 };

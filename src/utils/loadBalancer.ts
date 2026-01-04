@@ -13,7 +13,7 @@
  * - Load Redistribution: Move excess cards to adjacent days
  */
 
-import { addDays, startOfDay, format, differenceInDays } from 'date-fns';
+import { addDays, startOfDay as dateStartOfDay, format, differenceInDays } from 'date-fns';
 import { Flashcard, EasyDay } from '../types/flashcard';
 import { getCardRetrievability } from './retrievability';
 import { NEW_CARDS_PER_DAY, REVIEWS_PER_DAY } from './spacedRepetition';
@@ -127,13 +127,13 @@ export function getWorkloadForecast(
   config: LoadBalanceConfig = DEFAULT_LOAD_CONFIG
 ): DailyWorkload[] {
   const forecast: DailyWorkload[] = [];
-  const today = startOfDay(new Date());
+  const today = dateStartOfDay(new Date());
   
   // Count cards per day
   const cardCounts = new Map<string, { total: number; new: number; review: number }>();
   
   cards.forEach(card => {
-    const dueDate = startOfDay(new Date(card.nextReviewDate));
+    const dueDate = dateStartOfDay(new Date(card.nextReviewDate));
     const dateKey = format(dueDate, 'yyyy-MM-dd');
     
     const existing = cardCounts.get(dateKey) || { total: 0, new: 0, review: 0 };
@@ -234,7 +234,7 @@ export function balanceWorkload(
   // Build card lookup by date
   const cardsByDate = new Map<string, Flashcard[]>();
   cards.forEach(card => {
-    const dateKey = format(startOfDay(new Date(card.nextReviewDate)), 'yyyy-MM-dd');
+    const dateKey = format(dateStartOfDay(new Date(card.nextReviewDate)), 'yyyy-MM-dd');
     const existing = cardsByDate.get(dateKey) || [];
     existing.push(card);
     cardsByDate.set(dateKey, existing);
@@ -354,7 +354,7 @@ export function getCatchUpSchedule(
   });
   
   const schedule: CatchUpSchedule[] = [];
-  const today = startOfDay(new Date());
+  const today = dateStartOfDay(new Date());
   
   // Initialize schedule for each day
   for (let i = 0; i < catchUpDays; i++) {
