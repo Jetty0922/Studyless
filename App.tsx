@@ -1,43 +1,71 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { View, Text, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActionSheetProvider } from '@expo/react-native-action-sheet';
 import { NavigationContainer } from '@react-navigation/native';
-import * as Sentry from '@sentry/react-native';
 import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
-import { initAnalytics } from './src/services/analytics';
 
 // Error boundary to catch top-level errors
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 
-// Initialize Sentry for crash reporting
-// Get your DSN from: https://sentry.io → Settings → Client Keys (DSN)
-const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN;
-
-if (SENTRY_DSN) {
-  Sentry.init({
-    dsn: SENTRY_DSN,
-    // Enable performance monitoring
-    tracesSampleRate: 1.0,
-    // Only send errors in production
-    enabled: !__DEV__,
-    // Attach user info for debugging (without PII)
-    beforeSend(event) {
-      // Don't send events in development
-      if (__DEV__) {
-        return null;
-      }
-      return event;
-    },
-  });
-}
+// Lazy load heavy dependencies to prevent startup crashes
+let Sentry: any = null;
+let initAnalytics: any = null;
 
 function App() {
-  // Initialize analytics on app start
+  const [isReady, setIsReady] = useState(false);
+
   useEffect(() => {
-    initAnalytics();
+    const initialize = async () => {
+      try {
+        // Initialize Sentry (lazy load)
+        const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN;
+        if (SENTRY_DSN && !__DEV__) {
+          try {
+            Sentry = require('@sentry/react-native');
+            Sentry.init({
+              dsn: SENTRY_DSN,
+              tracesSampleRate: 0.5,
+              enabled: true,
+            });
+          } catch (e) {
+            console.log('[App] Sentry init skipped:', e);
+          }
+        }
+
+        // Initialize Analytics (lazy load)
+        const MIXPANEL_TOKEN = process.env.EXPO_PUBLIC_MIXPANEL_TOKEN;
+        if (MIXPANEL_TOKEN) {
+          try {
+            const analytics = require('./src/services/analytics');
+            initAnalytics = analytics.initAnalytics;
+            await initAnalytics();
+            analytics.trackEvent('App Opened');
+          } catch (e) {
+            console.log('[App] Analytics init skipped:', e);
+          }
+        }
+      } catch (error) {
+        // Never crash on initialization
+        console.log('[App] Initialization error (non-fatal):', error);
+      } finally {
+        setIsReady(true);
+      }
+    };
+
+    initialize();
   }, []);
+
+  // Show nothing while initializing (prevents flash)
+  if (!isReady) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
+  }
 
   return (
     <ErrorBoundary>
@@ -55,7 +83,5 @@ function App() {
   );
 }
 
-// Wrap with Sentry for automatic error boundary
-export default Sentry.wrap(App);
-
-// Force Rebuild v6 - Revert to AsyncStorage
+// Export without Sentry.wrap to prevent crashes
+export default App;

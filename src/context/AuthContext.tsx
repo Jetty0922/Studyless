@@ -45,30 +45,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   console.error("AuthContext: Sync on load failed", e);
                 }
             } else {
-                // Fallback: Try manual backup
-                const backup = await AsyncStorage.getItem('supabase-session-backup');
-                if (backup) {
-                    const parsedSession = JSON.parse(backup);
-                    // Re-hydrate Supabase client
-                    const { data, error } = await supabase.auth.setSession({
-                        access_token: parsedSession.access_token,
-                        refresh_token: parsedSession.refresh_token,
-                    });
-                    
-                    if (!error && data.session) {
-                        if (mounted) {
-                            setSession(data.session);
-                            setUser(data.session.user);
+                // Fallback: Try manual backup (with error handling to prevent infinite retries)
+                try {
+                    const backup = await AsyncStorage.getItem('supabase-session-backup');
+                    if (backup) {
+                        const parsedSession = JSON.parse(backup);
+                        // Re-hydrate Supabase client
+                        const { data, error } = await supabase.auth.setSession({
+                            access_token: parsedSession.access_token,
+                            refresh_token: parsedSession.refresh_token,
+                        });
+                        
+                        if (!error && data.session) {
+                            if (mounted) {
+                                setSession(data.session);
+                                setUser(data.session.user);
+                            }
+                            // Sync data after restoring backup session
+                            try {
+                              await useFlashcardStore.getState().syncWithSupabase();
+                            } catch (e) {
+                              console.error("AuthContext: Sync after backup restore failed", e);
+                            }
+                        } else {
+                            // Remove invalid backup to prevent retry loop
+                            if (__DEV__) {
+                                console.log("Removing invalid session backup");
+                            }
+                            await AsyncStorage.removeItem('supabase-session-backup');
                         }
-                        // Sync data after restoring backup session
-                        try {
-                          await useFlashcardStore.getState().syncWithSupabase();
-                        } catch (e) {
-                          console.error("AuthContext: Sync after backup restore failed", e);
-                        }
-                    } else {
-                        console.error("Failed to restore backup session", error);
+                    }
+                } catch (backupError) {
+                    // Clear backup on any error to prevent infinite retry loop
+                    if (__DEV__) {
+                        console.error("Backup restore error, clearing backup:", backupError);
+                    }
+                    try {
                         await AsyncStorage.removeItem('supabase-session-backup');
+                    } catch (e) {
+                        // Ignore cleanup errors
                     }
                 }
             }

@@ -12,7 +12,7 @@
       "backgroundColor": "#ffffff"
     },
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "notification": {
       "icon": "./assets/icon.png",
       "color": "#2563EB",
@@ -40,6 +40,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.studyless.app",
+      "newArchEnabled": false,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "This app needs access to the camera to scan study materials and take photos of notes.",
@@ -65,7 +66,8 @@
     },
     "android": {
       "edgeToEdgeEnabled": true,
-      "package": "com.studyless.app"
+      "package": "com.studyless.app",
+      "newArchEnabled": false
     },
     "owner": "mingun09",
     "extra": {
