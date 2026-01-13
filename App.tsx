@@ -83,5 +83,5 @@ function App() {
   );
 }
 
-// Export without Sentry.wrap to prevent crashes
+// Export without Sentry.wrap to prevent crashes (Sentry is already initialized above)
 export default App;

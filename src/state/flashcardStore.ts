@@ -58,6 +58,7 @@ interface FlashcardActions {
   updateFlashcard: (id: string, front: string, back: string) => Promise<void>;
   deleteFlashcard: (id: string) => Promise<void>;
   reviewFlashcard: (id: string, rating: ReviewRating, reviewTimeMs?: number) => Promise<void>;
+  undoReviewFlashcard: (cardId: string, previousCardState: Flashcard) => Promise<void>;
   convertToLongTerm: (deckId: string) => Promise<void>;
   toggleLongTermMode: (deckId: string, mode: "TEST_PREP" | "LONG_TERM") => Promise<void>;
   getDueCards: (deckId?: string) => Flashcard[];
@@ -999,6 +1000,61 @@ export const useFlashcardStore = create<FlashcardState & FlashcardActions>()(
           await supabase.from('profiles').update({
             updated_at: now.toISOString()
           }).eq('id', user.id);
+        }
+      },
+
+      undoReviewFlashcard: async (cardId, previousCardState) => {
+        const state = get();
+        
+        // Restore the card to its previous state
+        set({
+          flashcards: state.flashcards.map((f) =>
+            f.id === cardId ? { ...previousCardState } : f
+          ),
+          stats: {
+            ...state.stats,
+            totalCardsReviewed: Math.max(0, state.stats.totalCardsReviewed - 1),
+            cardsReviewedToday: Math.max(0, state.stats.cardsReviewedToday - 1),
+          },
+        });
+
+        // Sync to Supabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const dbUpdates: Record<string, unknown> = {
+            updated_at: new Date().toISOString(),
+            // Learning phase fields
+            learning_state: previousCardState.learningState,
+            learning_step: previousCardState.learningStep,
+            learning_steps: previousCardState.learningSteps,
+            learning_card_type: previousCardState.learningCardType,
+            // FSRS fields
+            state: previousCardState.state,
+            stability: previousCardState.stability,
+            difficulty: previousCardState.difficulty,
+            reps: previousCardState.reps,
+            lapses: previousCardState.lapses,
+            // Scheduling
+            next_review_date: previousCardState.nextReviewDate instanceof Date 
+              ? previousCardState.nextReviewDate.toISOString() 
+              : new Date(previousCardState.nextReviewDate).toISOString(),
+            // TEST_PREP fields
+            current_step: previousCardState.currentStep,
+            mastery: previousCardState.mastery,
+            // Leech fields
+            is_leech: previousCardState.isLeech,
+            leech_suspended: previousCardState.leechSuspended,
+          };
+
+          if (previousCardState.lastReview) {
+            dbUpdates.last_review = previousCardState.lastReview instanceof Date 
+              ? previousCardState.lastReview.toISOString() 
+              : new Date(previousCardState.lastReview).toISOString();
+          } else {
+            dbUpdates.last_review = null;
+          }
+
+          await supabase.from('flashcards').update(dbUpdates).eq('id', cardId);
         }
       },
 

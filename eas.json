@@ -14,7 +14,18 @@
       "node": "22.11.0"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "distribution": "store"
+      },
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "EAS_NO_VCS": "1"
+      }
     },
     "production": {
       "autoIncrement": true,
@@ -24,7 +35,12 @@
     }
   },
   "submit": {
+    "preview": {
+      "ios": {
+        "appleId": "fallenearly@gmail.com",
+        "ascAppId": "6756468628"
+      }
+    },
     "production": {}
   }
 }
-

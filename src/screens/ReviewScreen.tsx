@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions } from "react-native";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions, Modal, TextInput, Platform } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { ReviewRating, Flashcard } from "../types/flashcard";
@@ -14,8 +15,21 @@ import { trackReviewCompleted } from "../services/analytics";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
+// Maximum undo history entries to keep in memory
+const MAX_UNDO_HISTORY = 10;
+
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type ReviewRouteProp = RouteProp<RootStackParamList, "Review">;
+
+// Undo history entry interface
+interface ReviewHistoryEntry {
+  cardId: string;
+  cardSnapshot: Flashcard;
+  sessionCardsSnapshot: Flashcard[];
+  currentIndex: number;
+  reviewedCount: number;
+  wasRequeued: boolean;
+}
 
 export default function ReviewScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -24,6 +38,9 @@ export default function ReviewScreen() {
 
   const flashcards = useFlashcardStore((s) => s.flashcards);
   const reviewFlashcard = useFlashcardStore((s) => s.reviewFlashcard);
+  const undoReviewFlashcard = useFlashcardStore((s) => s.undoReviewFlashcard);
+  const updateFlashcard = useFlashcardStore((s) => s.updateFlashcard);
+  const deleteFlashcard = useFlashcardStore((s) => s.deleteFlashcard);
   const debugMode = useFlashcardStore((s) => s.debugMode);
 
   const { colors, isDark } = useTheme();
@@ -34,6 +51,16 @@ export default function ReviewScreen() {
   const [reviewedCount, setReviewedCount] = useState(0);
   const [sessionCards, setSessionCards] = useState<Flashcard[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+  
+  // Undo history state
+  const [reviewHistory, setReviewHistory] = useState<ReviewHistoryEntry[]>([]);
+  
+  // Menu and modal states
+  const [showMenu, setShowMenu] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [editFront, setEditFront] = useState("");
+  const [editBack, setEditBack] = useState("");
   
   // Review time tracking - start timer when card is shown
   const cardShowTimeRef = useRef<number>(Date.now());
@@ -99,6 +126,16 @@ export default function ReviewScreen() {
   const handleRating = (rating: ReviewRating) => {
     if (!currentCard) return;
     
+    // Capture state BEFORE the review for undo functionality
+    const historyEntry: ReviewHistoryEntry = {
+      cardId: currentCard.id,
+      cardSnapshot: { ...currentCard },
+      sessionCardsSnapshot: sessionCards.map(c => ({ ...c })),
+      currentIndex,
+      reviewedCount,
+      wasRequeued: false,
+    };
+    
     // Calculate review time (time from card shown to rating)
     const reviewTimeMs = Date.now() - cardShowTimeRef.current;
     
@@ -108,6 +145,7 @@ export default function ReviewScreen() {
     // AGAIN or HARD during learning: Requeue to end of session
     // This ensures the card reappears within the same session
     if (rating === "AGAIN" || (rating === "HARD" && isLearning)) {
+      historyEntry.wasRequeued = true;
       reviewFlashcard(currentCard.id, rating, reviewTimeMs);
       const updatedCards = [...sessionCards];
       const cardToRequeue = updatedCards.splice(currentIndex, 1)[0];
@@ -145,7 +183,113 @@ export default function ReviewScreen() {
         navigation.goBack();
       }
     }
+    
+    // Add to history (limit to MAX_UNDO_HISTORY entries)
+    setReviewHistory(prev => [...prev.slice(-(MAX_UNDO_HISTORY - 1)), historyEntry]);
   };
+  
+  // Handle undo - restore previous state
+  const handleUndo = useCallback(async () => {
+    if (reviewHistory.length === 0) return;
+    
+    const lastEntry = reviewHistory[reviewHistory.length - 1];
+    
+    // Haptic feedback
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    
+    // Restore card state in store
+    await undoReviewFlashcard(lastEntry.cardId, lastEntry.cardSnapshot);
+    
+    // Restore session state
+    setSessionCards(lastEntry.sessionCardsSnapshot);
+    setCurrentIndex(lastEntry.currentIndex);
+    setReviewedCount(lastEntry.reviewedCount);
+    setShowAnswer(false);
+    flipAnim.setValue(0);
+    
+    // Remove the entry from history
+    setReviewHistory(prev => prev.slice(0, -1));
+    
+    // Reset card timer
+    cardShowTimeRef.current = Date.now();
+  }, [reviewHistory, undoReviewFlashcard, flipAnim]);
+  
+  // Open edit modal
+  const handleOpenEdit = useCallback(() => {
+    if (!currentCard) return;
+    setEditFront(currentCard.front);
+    setEditBack(currentCard.back);
+    setShowMenu(false);
+    setShowEditModal(true);
+  }, [currentCard]);
+  
+  // Save edited card
+  const handleSaveEdit = useCallback(async () => {
+    if (!currentCard || !editFront.trim() || !editBack.trim()) return;
+    
+    // Update in store
+    await updateFlashcard(currentCard.id, editFront.trim(), editBack.trim());
+    
+    // Update in local session cards
+    setSessionCards(prev => prev.map(c => 
+      c.id === currentCard.id 
+        ? { ...c, front: editFront.trim(), back: editBack.trim() }
+        : c
+    ));
+    
+    setShowEditModal(false);
+    
+    // Haptic feedback
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [currentCard, editFront, editBack, updateFlashcard]);
+  
+  // Open delete confirmation
+  const handleOpenDelete = useCallback(() => {
+    setShowMenu(false);
+    setShowDeleteConfirm(true);
+  }, []);
+  
+  // Confirm delete card
+  const handleConfirmDelete = useCallback(async () => {
+    if (!currentCard) return;
+    
+    // Haptic feedback
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+    
+    // Delete from store
+    await deleteFlashcard(currentCard.id);
+    
+    // Remove from session cards
+    const updatedCards = sessionCards.filter(c => c.id !== currentCard.id);
+    
+    setShowDeleteConfirm(false);
+    
+    if (updatedCards.length === 0) {
+      // No more cards, go back
+      navigation.goBack();
+      return;
+    }
+    
+    setSessionCards(updatedCards);
+    
+    // Adjust current index if needed
+    if (currentIndex >= updatedCards.length) {
+      setCurrentIndex(updatedCards.length - 1);
+    }
+    
+    setShowAnswer(false);
+    flipAnim.setValue(0);
+    cardShowTimeRef.current = Date.now();
+    
+    // Clear undo history for deleted card
+    setReviewHistory(prev => prev.filter(h => h.cardId !== currentCard.id));
+  }, [currentCard, sessionCards, currentIndex, deleteFlashcard, navigation, flipAnim]);
 
   const handleClose = () => {
     navigation.goBack();
@@ -187,16 +331,30 @@ export default function ReviewScreen() {
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       {/* Header */}
       <View style={styles.header}>
-          <Pressable onPress={handleClose} style={styles.closeButton}>
-            <Ionicons name="close" size={24} color={colors.text} />
-          </Pressable>
+          <View style={styles.headerLeft}>
+            <Pressable onPress={handleClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color={colors.text} />
+            </Pressable>
+            <Pressable 
+              onPress={handleUndo} 
+              disabled={reviewHistory.length === 0}
+              style={[
+                styles.undoButton, 
+                { opacity: reviewHistory.length === 0 ? 0.3 : 1 }
+              ]}
+            >
+              <Ionicons name="arrow-undo" size={22} color={colors.text} />
+            </Pressable>
+          </View>
           <View style={styles.progressContainer}>
             <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
               <View style={[styles.progressFill, { width: `${progress}%`, backgroundColor: colors.primary }]} />
             </View>
             <Text style={[styles.progressText, { color: colors.text }]}>{currentIndex + 1} of {sessionCards.length}</Text>
           </View>
-          <View style={styles.spacer} />
+          <Pressable onPress={() => setShowMenu(true)} style={styles.menuButton}>
+            <Ionicons name="ellipsis-vertical" size={22} color={colors.text} />
+          </Pressable>
         </View>
 
         {/* Card */}
@@ -292,6 +450,123 @@ export default function ReviewScreen() {
             </View>
           </View>
         )}
+        
+        {/* Action Menu Modal */}
+        <Modal
+          visible={showMenu}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowMenu(false)}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setShowMenu(false)}>
+            <View style={[styles.menuContainer, { backgroundColor: colors.card }]}>
+              <Pressable 
+                style={[styles.menuItem, { borderBottomColor: colors.border }]} 
+                onPress={handleOpenEdit}
+              >
+                <Ionicons name="create-outline" size={22} color={colors.text} />
+                <Text style={[styles.menuItemText, { color: colors.text }]}>Edit Card</Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.menuItem, { borderBottomWidth: 0 }]} 
+                onPress={handleOpenDelete}
+              >
+                <Ionicons name="trash-outline" size={22} color={colors.error} />
+                <Text style={[styles.menuItemText, { color: colors.error }]}>Delete Card</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+        
+        {/* Edit Card Modal */}
+        <Modal
+          visible={showEditModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowEditModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.editModalContainer, { backgroundColor: colors.card }]}>
+              <Text style={[styles.editModalTitle, { color: colors.text }]}>Edit Card</Text>
+              
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Front</Text>
+              <TextInput
+                style={[styles.textInput, { 
+                  backgroundColor: colors.surface, 
+                  color: colors.text,
+                  borderColor: colors.border 
+                }]}
+                value={editFront}
+                onChangeText={setEditFront}
+                placeholder="Front of card"
+                placeholderTextColor={colors.textSecondary}
+                multiline
+              />
+              
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Back</Text>
+              <TextInput
+                style={[styles.textInput, { 
+                  backgroundColor: colors.surface, 
+                  color: colors.text,
+                  borderColor: colors.border 
+                }]}
+                value={editBack}
+                onChangeText={setEditBack}
+                placeholder="Back of card"
+                placeholderTextColor={colors.textSecondary}
+                multiline
+              />
+              
+              <View style={styles.editModalButtons}>
+                <Pressable 
+                  style={[styles.editModalButton, styles.cancelButton, { borderColor: colors.border }]}
+                  onPress={() => setShowEditModal(false)}
+                >
+                  <Text style={[styles.cancelButtonText, { color: colors.text }]}>Cancel</Text>
+                </Pressable>
+                <Pressable 
+                  style={[styles.editModalButton, styles.saveButton, { backgroundColor: colors.primary }]}
+                  onPress={handleSaveEdit}
+                >
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+        
+        {/* Delete Confirmation Modal */}
+        <Modal
+          visible={showDeleteConfirm}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowDeleteConfirm(false)}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setShowDeleteConfirm(false)}>
+            <View style={[styles.deleteConfirmContainer, { backgroundColor: colors.card }]}>
+              <Ionicons name="warning" size={48} color={colors.error} style={styles.deleteIcon} />
+              <Text style={[styles.deleteTitle, { color: colors.text }]}>Delete Card?</Text>
+              <Text style={[styles.deleteMessage, { color: colors.textSecondary }]}>
+                This card will be permanently deleted.
+              </Text>
+              
+              <View style={styles.deleteButtons}>
+                <Pressable 
+                  style={[styles.deleteButton, styles.deleteCancelButton, { borderColor: colors.border }]}
+                  onPress={() => setShowDeleteConfirm(false)}
+                >
+                  <Text style={[styles.deleteCancelText, { color: colors.text }]}>Cancel</Text>
+                </Pressable>
+                <Pressable 
+                  style={[styles.deleteButton, styles.deleteConfirmButton, { backgroundColor: colors.error }]}
+                  onPress={handleConfirmDelete}
+                >
+                  <Text style={styles.deleteConfirmText}>Delete</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        </Modal>
     </View>
   );
 }
@@ -311,6 +586,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     maxWidth: SCREEN_WIDTH,
   },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   closeButton: { 
     width: 40, 
     height: 40, 
@@ -319,12 +599,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
+  undoButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   pressed: { opacity: 0.7 },
   progressContainer: { 
     flex: 1, 
     marginHorizontal: 8,
     minWidth: 0, // Allow shrinking below content size
-    maxWidth: SCREEN_WIDTH - 120, // Account for close button, spacer, and padding
+    maxWidth: SCREEN_WIDTH - 180, // Account for header buttons and padding
   },
   progressBar: { height: 6, borderRadius: 3, overflow: "hidden" },
   progressFill: { height: "100%", borderRadius: 3 },
@@ -430,5 +724,128 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     marginTop: 4,
+  },
+  
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  
+  // Menu styles
+  menuContainer: {
+    width: SCREEN_WIDTH - 64,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    gap: 12,
+  },
+  menuItemText: {
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  
+  // Edit modal styles
+  editModalContainer: {
+    width: SCREEN_WIDTH - 48,
+    borderRadius: 20,
+    padding: 24,
+  },
+  editModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    minHeight: 80,
+    textAlignVertical: "top",
+    marginBottom: 16,
+  },
+  editModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  editModalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  cancelButton: {
+    borderWidth: 1,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  saveButton: {},
+  saveButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  
+  // Delete confirmation styles
+  deleteConfirmContainer: {
+    width: SCREEN_WIDTH - 64,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+  },
+  deleteIcon: {
+    marginBottom: 16,
+  },
+  deleteTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  deleteMessage: {
+    fontSize: 15,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  deleteButtons: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  deleteButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  deleteCancelButton: {
+    borderWidth: 1,
+  },
+  deleteCancelText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  deleteConfirmButton: {},
+  deleteConfirmText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

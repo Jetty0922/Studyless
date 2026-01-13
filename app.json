@@ -30,6 +30,7 @@
       [
         "@sentry/react-native/expo",
         {
+          "url": "https://sentry.io/",
           "organization": "studyless",
           "project": "studyless-mobile",
           "setCommits": false,
