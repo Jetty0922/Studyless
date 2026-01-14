@@ -32,6 +32,39 @@ export interface ExamPhaseConfig {
 }
 
 // ============================================================================
+// SMOOTH TARGET RETENTION CURVE
+// ============================================================================
+
+/**
+ * Calculate target retention using a smooth quadratic curve
+ * 
+ * This replaces the discrete phase-based targets with a continuous function
+ * that gradually increases from 75% (30+ days) to 95% (exam day).
+ * 
+ * The quadratic curve accelerates as the exam approaches:
+ * - Day 30: 75%
+ * - Day 20: 78%
+ * - Day 15: 80%
+ * - Day 10: 84%
+ * - Day 7:  86%
+ * - Day 3:  91%
+ * - Day 1:  94%
+ * - Day 0:  95% (capped)
+ * 
+ * @param daysLeft - Days until exam
+ * @returns Target retention (0.75 to 0.95)
+ */
+export function getTargetRetention(daysLeft: number): number {
+  if (daysLeft <= 0) return 0.95;  // Exam day cap
+  if (daysLeft > 30) return 0.75;  // Maintenance
+  
+  // Quadratic ramp: 75% → 95% over 30 days
+  // Slow early, accelerates as exam approaches
+  const t = 1 - (daysLeft / 30);
+  return 0.75 + 0.20 * (t * t);
+}
+
+// ============================================================================
 // PHASE DETECTION
 // ============================================================================
 
@@ -67,8 +100,8 @@ export function getExamPhase(testDate: Date): ExamPhaseConfig {
   }
   
   if (daysLeft <= 7) {
-    // CRAM phase: 95% → 99% as exam approaches
-    const targetR = 0.95 + (0.04 * (7 - daysLeft) / 7);
+    // CRAM phase: 86% → 95% as exam approaches (capped at 95%, no more 99%)
+    const targetR = Math.min(0.95, 0.86 + (0.09 * (7 - daysLeft) / 7));
     return {
       phase: 'CRAM',
       daysLeft,

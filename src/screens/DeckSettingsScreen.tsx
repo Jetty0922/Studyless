@@ -10,6 +10,7 @@ import { useFlashcardStore } from "../state/flashcardStore";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { useTheme } from "../utils/useTheme";
 import { Card } from "../components/ui";
+import ModeExplainerModal from "../components/ModeExplainerModal";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type DeckSettingsRouteProp = RouteProp<RootStackParamList, "DeckSettings">;
@@ -32,6 +33,7 @@ export default function DeckSettingsScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(deck?.testDate ? new Date(deck.testDate) : new Date());
   const [pendingModeSwitch, setPendingModeSwitch] = useState<"TEST_PREP" | null>(null);
+  const [showModeExplainer, setShowModeExplainer] = useState(false);
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
@@ -177,7 +179,16 @@ export default function DeckSettingsScreen() {
 
             {/* Study Mode */}
             <Card style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: isDark ? "#f1f5f9" : "#1e293b" }]}>Study Mode</Text>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, { color: isDark ? "#f1f5f9" : "#1e293b", marginBottom: 0 }]}>Study Mode</Text>
+                <Pressable 
+                  onPress={() => setShowModeExplainer(true)} 
+                  hitSlop={12}
+                  style={[styles.infoButton, { backgroundColor: isDark ? "rgba(102, 126, 234, 0.15)" : "#eef2ff" }]}
+                >
+                  <Ionicons name="help-circle-outline" size={18} color="#667eea" />
+                </Pressable>
+              </View>
               <View style={styles.modeRow}>
                 <Pressable onPress={() => isLongTerm && handleSwitchMode("TEST_PREP")} disabled={isTestPrep} style={[styles.modeButton, { backgroundColor: isTestPrep ? (isDark ? "rgba(102, 126, 234, 0.2)" : "#eef2ff") : (isDark ? "rgba(255,255,255,0.05)" : "#f8fafc"), borderColor: isTestPrep ? "#667eea" : (isDark ? "rgba(255,255,255,0.1)" : "#e2e8f0") }]}>
                   <View style={[styles.modeIcon, { backgroundColor: isTestPrep ? "#667eea" : (isDark ? "rgba(255,255,255,0.1)" : "#e2e8f0") }]}>
@@ -302,6 +313,13 @@ export default function DeckSettingsScreen() {
           minimumDate={new Date()}
         />
       )}
+
+      {/* Mode Explainer Modal */}
+      <ModeExplainerModal
+        visible={showModeExplainer}
+        onClose={() => setShowModeExplainer(false)}
+        initialMode={isLongTerm ? "longTerm" : "testPrep"}
+      />
     </View>
   );
 }
@@ -313,7 +331,9 @@ const styles = StyleSheet.create({
   scrollView: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 16 },
   section: { marginBottom: 16 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
   sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 16 },
+  infoButton: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   settingRow: { flexDirection: "row", alignItems: "center", paddingVertical: 4 },
   iconContainer: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", marginRight: 14 },
   settingInfo: { flex: 1 },

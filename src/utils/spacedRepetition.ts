@@ -33,7 +33,7 @@ import {
   ScheduleWarning,
   ExamPhase
 } from "../types/flashcard";
-import { getExamPhase, getExamPhaseCards } from "./examScheduler";
+import { getExamPhase, getExamPhaseCards, getTargetRetention } from "./examScheduler";
 import { 
   calculateOptimalReviewTime, 
   projectRetrievabilityAtDate,
@@ -86,24 +86,6 @@ export const DAY_BOUNDARY_HOUR = 4;
 
 /** Starting Ease Factor for new cards (250%) */
 export const STARTING_EASE = 2.5;
-
-/** Minimum Ease Factor (prevents Ease Hell) */
-export const EASE_FLOOR = 1.3;
-
-/** Ease penalty for Again on graduated card (-20%) */
-export const EASE_PENALTY_AGAIN = 0.20;
-
-/** Ease penalty for Hard on graduated card (-15%) */
-export const EASE_PENALTY_HARD = 0.15;
-
-/** Ease bonus for Easy on graduated card (+15%) */
-export const EASE_BONUS_EASY = 0.15;
-
-/** Easy bonus multiplier for interval (1.3x) */
-export const EASY_BONUS_MULTIPLIER = 1.3;
-
-/** Hard interval multiplier (fixed, not Ease-based) */
-export const HARD_INTERVAL_MULTIPLIER = 1.2;
 
 // ============================================================================
 // LAPSE CONSTANTS
@@ -197,47 +179,6 @@ export const DEFAULT_FSRS_PARAMETERS = [
   1.0824, 1.9813, 0.0953, 0.2975, 2.2042,
   0.2407, 2.9466, 0.5034, 0.6567
 ];
-
-// ============================================================================
-// EASE FACTOR UTILITIES
-// ============================================================================
-
-export interface EaseFactorUpdate {
-  newEase: number;
-  wasFloored: boolean;
-}
-
-/**
- * Update ease factor based on rating
- * Applies penalties/bonuses and enforces floor
- */
-export function updateEaseFactor(
-  currentEase: number,
-  rating: ReviewRating
-): EaseFactorUpdate {
-  let newEase = currentEase;
-  
-  switch (rating) {
-    case 'AGAIN':
-      newEase -= EASE_PENALTY_AGAIN;
-      break;
-    case 'HARD':
-      newEase -= EASE_PENALTY_HARD;
-      break;
-    case 'GOOD':
-      // No change
-      break;
-    case 'EASY':
-      newEase += EASE_BONUS_EASY;
-      break;
-  }
-  
-  // Apply floor (Ease Hell prevention)
-  const wasFloored = newEase < EASE_FLOOR;
-  newEase = Math.max(EASE_FLOOR, newEase);
-  
-  return { newEase, wasFloored };
-}
 
 // ============================================================================
 // FSRS FORMULAS - STABILITY AND DIFFICULTY
@@ -832,10 +773,10 @@ export const applyDateCap = (calculatedDate: Date, testDate: Date): Date => {
 /**
  * Calculate next review for TEST_PREP card using R_exam-based scheduling
  * 
- * Uses the 3-phase approach from the research:
- * - MAINTENANCE (>30 days): Target R = 75%, schedule based on stability
- * - CONSOLIDATION (7-30 days): Target R ramps 75%→95%, tightening intervals
- * - CRAM (≤7 days): Maximize R at exam, review every 1 day max
+ * Uses smooth target retention curve:
+ * - Quadratic ramp from 75% (30+ days) to 95% (exam day)
+ * - Unified stability multipliers: 1.5x for GOOD, 2.5x for EASY
+ * - CRAM (≤7 days): Shorter intervals, prioritize by R_exam
  */
 export function calculateTestPrepReview(
   card: Flashcard,
@@ -847,9 +788,10 @@ export function calculateTestPrepReview(
     ? card.testDate 
     : card.testDate ? new Date(card.testDate) : addDays(today, 30);
   
-  // Get current exam phase and target retention
+  // Get current exam phase and smooth target retention
   const phaseConfig = getExamPhase(testDate);
-  const { phase, targetRetention, daysLeft } = phaseConfig;
+  const { phase, daysLeft } = phaseConfig;
+  const smoothTargetR = getTargetRetention(daysLeft);
   
   // Get card's current stability (use default if new)
   const stability = card.stability || 1;
@@ -878,63 +820,50 @@ export function calculateTestPrepReview(
   }
   
   // Calculate interval based on phase
+  // Using unified multipliers: GOOD = 1.5x, EASY = 2.5x
   let baseInterval: number;
   let newStability: number;
   let mastery: MasteryLevel;
   
   if (phase === 'CRAM' || phase === 'EXAM_DAY') {
-    // CRAM MODE: Review every day (or sooner) to maximize R at exam
-    // Intervals based on rating but capped at daysLeft
+    // CRAM MODE: Short intervals to maximize R at exam
     if (rating === 'HARD') {
       baseInterval = Math.min(1, daysLeft);
       newStability = stability; // No change on hard
       mastery = 'STRUGGLING';
     } else if (rating === 'GOOD') {
-      baseInterval = Math.min(1, daysLeft); // 1 day max in cram
-      newStability = stability * 1.2; // Small boost
+      // Use smooth target, cap at 2 days in cram
+      baseInterval = Math.min(2, Math.max(1, calculateOptimalReviewTime(stability * 1.5, smoothTargetR)));
+      newStability = stability * 1.5;
       mastery = 'LEARNING';
     } else { // EASY
-      baseInterval = Math.min(2, daysLeft); // 2 days max in cram
-      newStability = stability * 1.5; // Bigger boost
-      mastery = 'MASTERED';
-    }
-  } else if (phase === 'CONSOLIDATION') {
-    // CONSOLIDATION: Use target retention to calculate interval
-    // Intervals tighten as exam approaches (targetR: 75% → 95%)
-    if (rating === 'HARD') {
-      // Shorter interval, no stability change
-      baseInterval = Math.max(1, calculateOptimalReviewTime(stability, Math.min(0.90, targetRetention + 0.10)));
-      newStability = stability;
-      mastery = 'STRUGGLING';
-    } else if (rating === 'GOOD') {
-      // Standard interval based on target retention
-      baseInterval = Math.max(1, calculateOptimalReviewTime(stability * 1.3, targetRetention));
-      newStability = stability * 1.3;
-      mastery = 'LEARNING';
-    } else { // EASY
-      // Longer interval, bigger stability boost
-      baseInterval = Math.max(1, calculateOptimalReviewTime(stability * 2.0, targetRetention - 0.05));
-      newStability = stability * 2.0;
+      // Use smooth target, cap at 3 days in cram
+      baseInterval = Math.min(3, Math.max(1, calculateOptimalReviewTime(stability * 2.5, smoothTargetR - 0.05)));
+      newStability = stability * 2.5;
       mastery = 'MASTERED';
     }
     // Cap to not exceed test date
     baseInterval = Math.min(baseInterval, daysLeft);
   } else {
-    // MAINTENANCE: Use relaxed 75% target, longer intervals
+    // CONSOLIDATION & MAINTENANCE: Use smooth target retention
+    // Unified multipliers for consistent behavior
     if (rating === 'HARD') {
-      baseInterval = Math.max(1, calculateOptimalReviewTime(stability, 0.85));
+      // Shorter interval, no stability change
+      baseInterval = Math.max(1, calculateOptimalReviewTime(stability, Math.min(0.90, smoothTargetR + 0.05)));
       newStability = stability;
       mastery = 'STRUGGLING';
     } else if (rating === 'GOOD') {
-      baseInterval = Math.max(1, calculateOptimalReviewTime(stability * 1.5, 0.75));
+      // Standard interval with 1.5x stability boost
+      baseInterval = Math.max(1, calculateOptimalReviewTime(stability * 1.5, smoothTargetR));
       newStability = stability * 1.5;
       mastery = 'LEARNING';
     } else { // EASY
-      baseInterval = Math.max(1, calculateOptimalReviewTime(stability * 2.5, 0.70));
+      // Longer interval with 2.5x stability boost
+      baseInterval = Math.max(1, calculateOptimalReviewTime(stability * 2.5, smoothTargetR - 0.05));
       newStability = stability * 2.5;
       mastery = 'MASTERED';
     }
-    // Still cap to not exceed test date
+    // Cap to not exceed test date
     baseInterval = Math.min(baseInterval, daysLeft);
   }
   
@@ -974,6 +903,8 @@ export function calculateLongTermReview(
   // AGAIN: Enter relearning phase
   if (rating === "AGAIN") {
     const newLapses = (card.lapses || 0) + 1;
+    // Increase difficulty when card is failed (FSRS behavior)
+    const newDifficulty = Math.min(10, (card.difficulty || 5) + 1);
     
     return {
       learningState: 'RELEARNING',
@@ -982,6 +913,7 @@ export function calculateLongTermReview(
       learningCardType: 'INTRADAY',
       nextReviewDate: addSeconds(now, RELEARNING_STEPS[0]),
       state: FSRSState.Relearning,
+      difficulty: newDifficulty,
       lapses: newLapses,
       reps: (card.reps || 0) + 1,
       lastReview: now,
@@ -1032,15 +964,15 @@ export function calculateLongTermReview(
   const fuzzedDays = applyFSRSFuzz(stabilityDays);
   const nextReview = addDays(now, fuzzedDays);
   
-  // Calculate mastery
+  // Calculate mastery based on actual stability (not fuzzed interval)
   const mastery: MasteryLevel = (card.lapses || 0) >= MASTERY_THRESHOLDS.lapsesForStruggling
     ? 'STRUGGLING'
-    : fuzzedDays >= MASTERY_THRESHOLDS.stabilityForMastered
+    : result.stability >= MASTERY_THRESHOLDS.stabilityForMastered
     ? 'MASTERED'
     : 'LEARNING';
   
   return {
-    stability: fuzzedDays,
+    stability: result.stability,
     difficulty: result.difficulty,
     state: result.state as unknown as FSRSState,
     nextReviewDate: nextReview,
