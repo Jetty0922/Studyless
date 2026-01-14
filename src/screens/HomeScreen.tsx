@@ -24,6 +24,7 @@ import { Card, Button } from "../components/ui";
 import {
   generateFlashcardsFromImage,
   generateFlashcardsFromFile,
+  generateFlashcardsFromMultipleImages,
 } from "../utils/aiFlashcardGenerator";
 import { trackAIGeneration } from "../services/analytics";
 
@@ -116,6 +117,36 @@ export default function HomeScreen() {
     }
   };
 
+  const processMultipleImages = async (uris: string[]) => {
+    setIsGenerating(true);
+    setGeneratingMessage(`Processing ${uris.length} images...`);
+    
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("Request timed out. Please try again.")), 120000); // 2 min for multiple images
+    });
+    
+    try {
+      const generatedCards = await Promise.race([
+        generateFlashcardsFromMultipleImages(uris), 
+        timeoutPromise
+      ]);
+      
+      if (generatedCards.length === 0) {
+        trackAIGeneration('image', false, 0, "No content found");
+        Alert.alert("No Content Found", "Could not generate flashcards from these images.");
+        return;
+      }
+      
+      trackAIGeneration('image', true, generatedCards.length);
+      navigation.navigate("DeckSelection", { flashcards: generatedCards, sourceUri: uris[0] });
+    } catch (error: any) {
+      trackAIGeneration('image', false, undefined, error.message);
+      Alert.alert("Generation Failed", error.message || "Could not generate flashcards. Please try again.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleTakePhoto = async () => {
     setShowGenerateModal(false);
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -138,9 +169,20 @@ export default function HomeScreen() {
     setShowGenerateModal(false);
     await new Promise(resolve => setTimeout(resolve, 300));
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"] as any, allowsEditing: false, quality: 0.8 });
-      if (!result.canceled && result.assets[0]) {
-        await processAndGenerateFlashcards(result.assets[0].uri, result.assets[0].mimeType);
+      const result = await ImagePicker.launchImageLibraryAsync({ 
+        mediaTypes: ["images"] as any, 
+        allowsEditing: false, 
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        selectionLimit: 10, // Limit to 10 images at once
+      });
+      if (!result.canceled && result.assets.length > 0) {
+        if (result.assets.length === 1) {
+          await processAndGenerateFlashcards(result.assets[0].uri, result.assets[0].mimeType);
+        } else {
+          // Multiple images selected
+          await processMultipleImages(result.assets.map(a => a.uri));
+        }
       }
     } catch {
       Alert.alert("Error", "Failed to pick image. Please try again.");

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions, Modal, TextInput, Platform } from "react-native";
+import { View, Text, Pressable, Image, StyleSheet, Animated, Dimensions, Modal, TextInput, Platform, ScrollView } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -359,24 +359,42 @@ export default function ReviewScreen() {
 
         {/* Card */}
         <View style={styles.cardContainer}>
-          <Pressable onPress={handleFlip} style={styles.cardWrapper}>
+          <View style={styles.cardWrapper}>
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Animated.View style={[styles.cardFace, frontAnimatedStyle, { backfaceVisibility: 'hidden' }]}>
-                <Text style={[styles.frontText, { color: colors.text }]}>{currentCard.front}</Text>
-                {currentCard.imageUri && !currentCard.fileUri && <Image source={{ uri: currentCard.imageUri }} style={styles.cardImage} resizeMode="cover" />}
-                <View style={styles.tapHint}>
+                <ScrollView 
+                  style={styles.cardScrollView} 
+                  contentContainerStyle={styles.cardScrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <Text style={[styles.frontText, { color: colors.text }]}>{currentCard.front}</Text>
+                  {currentCard.imageUri && !currentCard.fileUri && <Image source={{ uri: currentCard.imageUri }} style={styles.cardImage} resizeMode="cover" />}
+                </ScrollView>
+                <Pressable onPress={handleFlip} style={styles.tapHint}>
                   <View style={[styles.tapHintPill, { backgroundColor: colors.surface }]}>
                     <Ionicons name="swap-horizontal" size={14} color={colors.textSecondary} />
                     <Text style={[styles.tapHintText, { color: colors.textSecondary }]}>Tap to reveal</Text>
                   </View>
-                </View>
+                </Pressable>
               </Animated.View>
 
               <Animated.View style={[styles.cardFace, styles.cardBack, backAnimatedStyle, { backfaceVisibility: 'hidden', backgroundColor: colors.card }]}>
-                <Text style={[styles.backText, { color: colors.text }]}>{currentCard.back}</Text>
+                <ScrollView 
+                  style={styles.cardScrollView} 
+                  contentContainerStyle={styles.cardScrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <Text style={[styles.backText, { color: colors.text }]}>{currentCard.back}</Text>
+                </ScrollView>
+                <Pressable onPress={handleFlip} style={styles.tapHint}>
+                  <View style={[styles.tapHintPill, { backgroundColor: colors.surface }]}>
+                    <Ionicons name="swap-horizontal" size={14} color={colors.textSecondary} />
+                    <Text style={[styles.tapHintText, { color: colors.textSecondary }]}>Tap to flip back</Text>
+                  </View>
+                </Pressable>
               </Animated.View>
             </View>
-          </Pressable>
+          </View>
           
           {/* Debug Overlay */}
           {debugInfo && (
@@ -654,6 +672,8 @@ const styles = StyleSheet.create({
     borderRadius: 24 
   },
   cardBack: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 24 },
+  cardScrollView: { flex: 1, width: '100%' },
+  cardScrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 40 },
   frontText: { fontSize: 22, fontWeight: "700", textAlign: "center", lineHeight: 32 },
   backText: { fontSize: 18, fontWeight: "600", textAlign: "center", lineHeight: 26 },
   cardImage: { width: "100%", height: 140, borderRadius: 16, marginTop: 20 },

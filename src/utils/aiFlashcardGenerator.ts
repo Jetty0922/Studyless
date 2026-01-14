@@ -103,6 +103,43 @@ export async function generateFlashcardsFromImage(
 }
 
 /**
+ * Generates flashcards from multiple images
+ * Processes each image and combines results
+ */
+export async function generateFlashcardsFromMultipleImages(
+  imageUris: string[]
+): Promise<GeneratedFlashcard[]> {
+  if (imageUris.length === 0) {
+    throw new Error("No images provided");
+  }
+  
+  if (imageUris.length === 1) {
+    return generateFlashcardsFromImage(imageUris[0]);
+  }
+  
+  // Process all images in parallel
+  const results = await Promise.all(
+    imageUris.map(async (uri, index) => {
+      try {
+        return await generateFlashcardsFromImage(uri);
+      } catch (error) {
+        console.warn(`Failed to process image ${index + 1}:`, error);
+        return []; // Return empty array for failed images
+      }
+    })
+  );
+  
+  // Combine all flashcards
+  const allFlashcards = results.flat();
+  
+  if (allFlashcards.length === 0) {
+    throw new Error("Could not generate flashcards from any of the selected images.");
+  }
+  
+  return allFlashcards;
+}
+
+/**
  * Generates flashcards from text
  */
 export async function generateFlashcardsFromText(

@@ -6,7 +6,7 @@ import { useTheme } from "../utils/useTheme";
 import { Card } from "../components/ui";
 import { useFlashcardStore } from "../state/flashcardStore";
 
-type TabType = "how" | "science" | "tips";
+type TabType = "how" | "science" | "tips" | "modes";
 
 export default function LearnScreen() {
   const { colors, isDark } = useTheme();
@@ -44,9 +44,15 @@ export default function LearnScreen() {
               colors={colors}
             />
             <TabButton 
-              title="Study Tips" 
+              title="Tips" 
               isActive={activeTab === "tips"} 
               onPress={() => setActiveTab("tips")}
+              colors={colors}
+            />
+            <TabButton 
+              title="Modes" 
+              isActive={activeTab === "modes"} 
+              onPress={() => setActiveTab("modes")}
               colors={colors}
             />
           </View>
@@ -57,6 +63,7 @@ export default function LearnScreen() {
             {activeTab === "how" && <HowItWorksContent colors={colors} />}
             {activeTab === "science" && <ScienceContent colors={colors} isDark={isDark} />}
             {activeTab === "tips" && <TipsContent colors={colors} />}
+            {activeTab === "modes" && <ModesContent colors={colors} isDark={isDark} />}
             <View style={{ height: 32 }} />
           </View>
         </ScrollView>
@@ -326,6 +333,122 @@ function TipsContent({ colors }: { colors: any }) {
   );
 }
 
+function ModesContent({ colors, isDark }: { colors: any; isDark: boolean }) {
+  return (
+    <View style={styles.sectionContainer}>
+      {/* Test Prep Mode */}
+      <Card variant="outlined" style={styles.scienceCard}>
+        <View style={styles.modeHeader}>
+          <View style={[styles.modeIcon, { backgroundColor: "#667eea" }]}>
+            <Ionicons name="school" size={24} color="#ffffff" />
+          </View>
+          <Text style={[styles.scienceTitle, { color: colors.text, marginBottom: 0 }]}>Test Prep Mode</Text>
+        </View>
+        <Text style={[styles.modeSubtitle, { color: colors.textSecondary }]}>
+          For exams, certifications, and interviews with a specific date.
+        </Text>
+        
+        <Text style={[styles.modeDescription, { color: colors.text }]}>
+          Set your test date and we schedule your reviews to maximize what you'll remember on exam day.
+        </Text>
+
+        <Text style={[styles.phaseHeader, { color: colors.text }]}>The 3-Phase System:</Text>
+        
+        <View style={styles.phaseList}>
+          <View style={[styles.phaseItem, { backgroundColor: isDark ? "rgba(102, 126, 234, 0.1)" : "#eef2ff" }]}>
+            <View style={[styles.phaseBadge, { backgroundColor: "#667eea" }]}>
+              <Text style={styles.phaseBadgeText}>1</Text>
+            </View>
+            <View style={styles.phaseContent}>
+              <Text style={[styles.phaseTitle, { color: colors.text }]}>Maintenance</Text>
+              <Text style={[styles.phaseTime, { color: "#667eea" }]}>30+ days out</Text>
+              <Text style={[styles.phaseDesc, { color: colors.textSecondary }]}>Relaxed schedule, build familiarity</Text>
+            </View>
+          </View>
+
+          <View style={[styles.phaseItem, { backgroundColor: isDark ? "rgba(139, 92, 246, 0.1)" : "#ede9fe" }]}>
+            <View style={[styles.phaseBadge, { backgroundColor: "#8b5cf6" }]}>
+              <Text style={styles.phaseBadgeText}>2</Text>
+            </View>
+            <View style={styles.phaseContent}>
+              <Text style={[styles.phaseTitle, { color: colors.text }]}>Consolidation</Text>
+              <Text style={[styles.phaseTime, { color: "#8b5cf6" }]}>7-30 days out</Text>
+              <Text style={[styles.phaseDesc, { color: colors.textSecondary }]}>Intervals shorten, strengthen memory</Text>
+            </View>
+          </View>
+
+          <View style={[styles.phaseItem, { backgroundColor: isDark ? "rgba(239, 68, 68, 0.1)" : "#fef2f2" }]}>
+            <View style={[styles.phaseBadge, { backgroundColor: "#ef4444" }]}>
+              <Text style={styles.phaseBadgeText}>3</Text>
+            </View>
+            <View style={styles.phaseContent}>
+              <Text style={[styles.phaseTitle, { color: colors.text }]}>Cram</Text>
+              <Text style={[styles.phaseTime, { color: "#ef4444" }]}>Final week</Text>
+              <Text style={[styles.phaseDesc, { color: colors.textSecondary }]}>Intensive review, weakest cards first</Text>
+            </View>
+          </View>
+        </View>
+      </Card>
+
+      {/* Long Term Mode */}
+      <Card variant="outlined" style={styles.scienceCard}>
+        <View style={styles.modeHeader}>
+          <View style={[styles.modeIcon, { backgroundColor: "#10b981" }]}>
+            <Ionicons name="repeat" size={24} color="#ffffff" />
+          </View>
+          <Text style={[styles.scienceTitle, { color: colors.text, marginBottom: 0 }]}>Long Term Mode</Text>
+        </View>
+        <Text style={[styles.modeSubtitle, { color: colors.textSecondary }]}>
+          For languages, professional knowledge, and lifelong learning.
+        </Text>
+
+        <View style={[styles.fsrsBadge, { backgroundColor: isDark ? "rgba(16, 185, 129, 0.15)" : "#d1fae5" }]}>
+          <Text style={[styles.fsrsText, { color: "#10b981" }]}>
+            Powered by FSRS — the same algorithm used by Anki
+          </Text>
+        </View>
+
+        <Text style={[styles.modeDescription, { color: colors.text }]}>
+          Your brain forgets things over time in a predictable way. We schedule reviews right before you'd forget, so you remember more with less effort.
+        </Text>
+
+        <View style={styles.featureList}>
+          <View style={styles.featureRow}>
+            <Ionicons name="add-circle" size={20} color="#10b981" />
+            <Text style={[styles.featureText, { color: colors.text }]}>
+              <Text style={{ fontWeight: "600" }}>New cards</Text> start with short intervals (1-4 days)
+            </Text>
+          </View>
+          <View style={styles.featureRow}>
+            <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+            <Text style={[styles.featureText, { color: colors.text }]}>
+              <Text style={{ fontWeight: "600" }}>Easy cards</Text> grow to weeks, then months
+            </Text>
+          </View>
+          <View style={styles.featureRow}>
+            <Ionicons name="close-circle" size={20} color="#ef4444" />
+            <Text style={[styles.featureText, { color: colors.text }]}>
+              <Text style={{ fontWeight: "600" }}>Hard cards</Text> stay at shorter intervals
+            </Text>
+          </View>
+          <View style={styles.featureRow}>
+            <Ionicons name="analytics" size={20} color="#8b5cf6" />
+            <Text style={[styles.featureText, { color: colors.text }]}>
+              <Text style={{ fontWeight: "600" }}>Each card adapts</Text> — we track what's hard for you
+            </Text>
+          </View>
+        </View>
+
+        <View style={[styles.resultBox, { backgroundColor: isDark ? "rgba(16, 185, 129, 0.1)" : "#d1fae5" }]}>
+          <Text style={[styles.resultText, { color: colors.text }]}>
+            <Text style={{ fontWeight: "700", color: "#10b981" }}>Result:</Text> ~90% retention with minimum reviews
+          </Text>
+        </View>
+      </Card>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -474,6 +597,104 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   tipDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  // Modes tab styles
+  modeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    gap: 12,
+  },
+  modeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modeSubtitle: {
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  modeDescription: {
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  phaseHeader: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+  phaseList: {
+    gap: 10,
+  },
+  phaseItem: {
+    flexDirection: "row",
+    padding: 12,
+    borderRadius: 10,
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  phaseBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  phaseBadgeText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  phaseContent: {
+    flex: 1,
+  },
+  phaseTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  phaseTime: {
+    fontSize: 12,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  phaseDesc: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  fsrsBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  fsrsText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  featureList: {
+    gap: 12,
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  featureText: {
+    fontSize: 14,
+    lineHeight: 20,
+    flex: 1,
+  },
+  resultBox: {
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  resultText: {
     fontSize: 14,
     lineHeight: 20,
   },
